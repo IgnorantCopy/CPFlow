@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="fba17311-d5ed-4a9b-9f7c-7bd54a6f31ed" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/environment.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/environment.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/dataset/cath_imem_2nd.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/dataset/cath_imem_2nd.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/dataset/large_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/dataset/large_dataset.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/dataset/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/dataset/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/inference.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/inference.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/model/egnn_pytorch/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/model/egnn_pytorch/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/protein_DIFF/run_pt.py" beforeDir="false" afterPath="$PROJECT_DIR$/protein_DIFF/run_pt.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_C:/Users/27344/codespace/codes/CPDiffusion" value="3CwIXKd0mrs84owbiCD3qtiOaNV" />
+    </persistenceIdMap>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;IgnorantCopy&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/bzho3923/CPDiffusion.git&quot;,
+    &quot;accountId&quot;: &quot;ce10e1be-c1c9-46d2-8db3-810366f89710&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 6
+}</component>
+  <component name="ProjectId" id="3CwIXKd0mrs84owbiCD3qtiOaNV" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.generate_graph.executor&quot;: &quot;Run&quot;,
+    &quot;Python.inference.executor&quot;: &quot;Run&quot;,
+    &quot;Python.run_pt.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/27344/codespace/codes/CPDiffusion&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.keymap&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\27344\codespace\codes\CPDiffusion\dataset\cath40_k10_imem_add2ndstrc" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Python.run_pt">
+    <configuration name="generate_graph" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="CPDiffusion" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/protein_DIFF/dataset/generate_graph.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="inference" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="CPDiffusion" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/protein_DIFF/inference.py" />
+      <option name="PARAMETERS" value="--ckpt ckpt/Jun_5_ago_dataset=CATH_result_lr=0.0005_wd=0.0_dp=0.08_hidden=256_noisy_type=uniform_embed_ss=False_88935.pt --target_protein dataset/Ago/process/AGO_005_model_3_ptm.pt --target_protein_dir dataset/Ago/process/ --gen_num 100 --output_dir result/predict" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="run_pt" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="CPDiffusion" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/protein_DIFF/run_pt.py" />
+      <option name="PARAMETERS" value="--batch_size 32 --lr 5e-4 --timesteps 500 --hidden_dim 256 --objective pred_x0 --smooth_temperature 1.0 --wd 0 --clip_grad_norm 1e3 --device_id 0 --depth 6 --drop_out 0.08 --embedding_dim 256 --embedding --norm_feat --Date 1121 --noise_type uniform --target_protein_dir dataset/Ago/process/ --output_dir result/Ago" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.generate_graph" />
+      <item itemvalue="Python.inference" />
+      <item itemvalue="Python.run_pt" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.generate_graph" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-PY-252.27397.106" />
+        <option value="bundled-python-sdk-4e2b1448bda8-9a97661f3031-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.27397.106" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="fba17311-d5ed-4a9b-9f7c-7bd54a6f31ed" name="Changes" comment="" />
+      <created>1777290244315</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1777290244315</updated>
+      <workItem from="1777290247786" duration="756000" />
+      <workItem from="1777291392743" duration="28860000" />
+      <workItem from="1777429713675" duration="21000" />
+      <workItem from="1777812455611" duration="1884000" />
+      <workItem from="1777966238429" duration="15000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/protein_DIFF/dataset/cath_imem_2nd.py</url>
+          <line>303</line>
+          <option name="timeStamp" value="6" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/protein_DIFF/dataset/cath_imem_2nd.py</url>
+          <line>285</line>
+          <option name="timeStamp" value="8" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/protein_DIFF/dataset/large_dataset.py</url>
+          <line>30</line>
+          <option name="timeStamp" value="11" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/CPDiffusion$run_pt.coverage" NAME="run_pt Coverage Results" MODIFIED="1777822622841" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/CPDiffusion$inference.coverage" NAME="inference Coverage Results" MODIFIED="1777375365448" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/CPDiffusion$generate_graph.coverage" NAME="generate_graph Coverage Results" MODIFIED="1777368940716" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+  </component>
+  <component name="github-copilot-workspace">
+    <instructionFileLocations>
+      <option value=".github/instructions" />
+    </instructionFileLocations>
+    <promptFileLocations>
+      <option value=".github/prompts" />
+    </promptFileLocations>
+  </component>
+</project>
