@@ -396,7 +396,7 @@ class DiscreteUniformTransition:
         t_float = t_float.to(device)
         self.u_x = self.u_x.to(device)
 
-        q_x = t_float * torch.eye(self.X_classes, device=device).unsqueeze(0) + (1 - t_float) * self.u_x.to(device)
+        q_x = (1 - t_float) * torch.eye(self.X_classes, device=device).unsqueeze(0) + t_float * self.u_x.to(device)
 
         return q_x
 
@@ -549,9 +549,8 @@ class Sparse_DIGRESS(nn.Module):
     def forward(self,data,logit=False):
         t, r = self.sample_t_r(data.batch[-1].item()+1, data.x.device)
         _t, _r = t[data.batch], r[data.batch]
-        limit_dist = torch.ones(20) / 20
-        e = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0]).to(data.x.device)
         noise_data = self.apply_noise(data, t)
+        e = self.transition_model.u_x
         x, pos, extra_x, edge_index, edge_attr, ss, batch = noise_data.x, noise_data.pos, noise_data.extra_x, noise_data.edge_index, noise_data.edge_attr, noise_data.ss, noise_data.batch
 
         if self.objective == 'pred_x0':
@@ -562,9 +561,9 @@ class Sparse_DIGRESS(nn.Module):
             raise ValueError(f'unknown objective {self.objective}')
 
         def u_fn(x, t, r, pos=None, extra_x=None, edge_index=None, edge_attr=None, ss=None, batch=None):
-            return (x - self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)[0]) / torch.clip(_t, min=0.05)
+            return (x - self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)[0]) / torch.clip(t[batch], min=0.05)
 
-        v = u_fn(x, t, r, pos, extra_x, edge_index, edge_attr, ss, batch)
+        v = u_fn(x, t, t, pos, extra_x, edge_index, edge_attr, ss, batch)
         jvp_args = (
             partial(u_fn, pos=pos, extra_x=extra_x, edge_index=edge_index, edge_attr=edge_attr, ss=ss, batch=batch),
             (x, t, r),
