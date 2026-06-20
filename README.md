@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CPFlow
 A repository for the meanflow version of CPDiffusion.
 =======
@@ -121,4 +120,3 @@ Please cite our work if you have used our code or data for **dry experiment test
   publisher={Springer Nature Singapore Singapore}
 }
 ```
->>>>>>> d7b2cc1 (<convert to meanflow>)

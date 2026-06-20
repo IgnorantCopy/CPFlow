@@ -78,7 +78,7 @@ if __name__ == '__main__':
     edge_attr_dim = target_protein_test_dataset[0].edge_attr.shape[1]
 
     model = EGNN_NET(input_feat_dim=input_feat_dim,hidden_channels=config['hidden_dim'],edge_attr_dim=edge_attr_dim,dropout=config['drop_out'],n_layers=config['depth'],update_edge = True,embedding=config['embedding'],embedding_dim=config['embedding_dim'],norm_feat=config['norm_feat'],output_dim=20,embedding_ss=config['embed_ss'])
-    diffusion = Sparse_DIGRESS(model=model,config=config,timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'])
+    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'], temperature=1.0)
     # print param number
     num_params = sum(p.numel() for p in diffusion.parameters() if p.requires_grad)
     print(f'number of parameters: {num_params}')
@@ -131,7 +131,7 @@ if __name__ == '__main__':
     for i in range(args.gen_num):
         with torch.no_grad():
             while True:
-                zt,sample_graph = trainer.ema.ema_model.sample(data_input,cond=cond_index, temperature=1.0,stop=0,step=5) #zt is the output of Neural Netowrk and sample graph is a sample of it
+                zt,sample_graph = trainer.ema.ema_model.sample(data_input,cond=cond_index) #zt is the output of Neural Netowrk and sample graph is a sample of it
                 # prob = F.softmax(zt/10,dim=1)
                 prob = zt.half()
                 all_zt.append(prob) #= torch.cat([all_zt,zt])

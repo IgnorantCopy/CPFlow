@@ -396,14 +396,14 @@ class DiscreteUniformTransition:
         t_float = t_float.to(device)
         self.u_x = self.u_x.to(device)
 
-        q_x = t_float * torch.eye(self.X_classes, device=device).unsqueeze(0) + (1 - t_float) * self.u_x.to(device)
+        q_x = (1 - t_float) * torch.eye(self.X_classes, device=device).unsqueeze(0) + t_float * self.u_x.to(device)
 
         return q_x
 
 
 class Sparse_DIGRESS(nn.Module):
     def __init__(self,model,config,*,sampling_timesteps = 5,loss_type='l1',objective = 'pred_x0', label_smooth_tem=1.0,
-                 time_dist=("lognorm", -0.4, 1.0), flow_ratio=0.5):
+                 time_dist=("lognorm", -0.4, 1.0), flow_ratio=0.5, temperature):
         super().__init__()
         self.model = model
         self.objective = objective
@@ -412,6 +412,7 @@ class Sparse_DIGRESS(nn.Module):
         self.noise_type = config['noise_type']
         self.time_dist = time_dist
         self.flow_ratio = flow_ratio
+        self.temperature = temperature
         self.config  = config
         if config['noise_type'] == 'uniform':
             self.transition_model = DiscreteUniformTransition(x_classes=20)
@@ -441,87 +442,36 @@ class Sparse_DIGRESS(nn.Module):
         
         return noise_data
     
-    def sample_discrete_feature_noise(self,limit_dist ,num_node):
-        x_limit = limit_dist[None,:].expand(num_node,-1) #[num_node,20]
-        U_X = x_limit.flatten(end_dim=-2).multinomial(1).squeeze()
-        U_X = F.one_hot(U_X, num_classes=x_limit.shape[-1]).float()
-        return U_X
-
-    def compute_batched_over0_posterior_distribution(self,X_t,Q_t,Qsb,Qtb,data):
-        """ M: X or E
-        Compute xt @ Qt.T * x0 @ Qsb / x0 @ Qtb @ xt.T for each possible value of x0 
-        X_t: bs, n, dt          or bs, n, n, dt
-        Qt: bs, d_t-1, dt
-        Qsb: bs, d0, d_t-1
-        Qtb: bs, d0, dt.
-        """
-        #X_t is a sample of q(x_t|x_t+1)
-        Qt_T = Q_t.transpose(-1,-2)
-        X_t_ = X_t.unsqueeze(dim = -2)
-        left_term = X_t_ @ Qt_T[data.batch] #[N,1,d_t-1]
-        # left_term = left_term.unsqueeze(dim = 1) #[N,1,dt-1]
-
-        right_term = Qsb[data.batch] #[N,d0,d_t-1]
-
-        numerator = left_term * right_term #[N,d0,d_t-1]
-
-        prod = Qtb[data.batch] @ X_t.unsqueeze(dim=2) # N,d0,1
-        denominator = prod
-        denominator[denominator == 0] = 1e-6        
-
-        out = numerator/denominator
-
-        return out
-
-    def sample_p_zs_given_zt(self,t,s,zt,data,temperature,last_step,cond=False):
+    def sample_p_zs_given_zt(self,t,r,zt,data,cond=False):
         """
         sample zs~p(zs|zt)
         """
-        Qtb = self.transition_model.get_Qt_bar(t, data.x.device)
-        Qsb = self.transition_model.get_Qt_bar(s, data.x.device)
-        Qt = (Qtb/Qsb)/(Qtb/Qsb).sum(dim=1).unsqueeze(dim=2)
-
-        noise_data = data.clone()   
+        noise_data = data.clone()
         noise_data.x = zt #x_t
-        pred,_ = self.model(noise_data, t)
-        pred_X = F.softmax(pred,dim = -1) #\hat{p(X)}_0
-        
+        x, pos, extra_x, edge_index, edge_attr, ss, batch = noise_data.x, noise_data.pos, noise_data.extra_x, noise_data.edge_index, noise_data.edge_attr, noise_data.ss, noise_data.batch
+        pred,_ = self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)
+
         if isinstance(cond, torch.Tensor):
-            pred_X[cond] = data.x[cond]
+            pred[cond] = data.x[cond]
 
-        if last_step:
-            pred = pred**temperature
-            pred_X = F.softmax(pred,dim = -1)
-            # sample_s = pred_X.multinomial(1).squeeze()
-            sample_s = pred_X.argmax(dim = 1)
-            final_predicted_X = F.one_hot(sample_s,num_classes = 20).float()
+        _t, _r = t[batch], r[batch]
+        v_pred = (zt - pred) / torch.clip(_t, min=0.05)
 
-            return pred,final_predicted_X
-            
-        
-        p_s_and_t_given_0_X = self.compute_batched_over0_posterior_distribution(X_t=zt,Q_t=Qt,Qsb=Qsb,Qtb=Qtb,data=data)#[N,d0,d_t-1] 20,20
-        weighted_X = pred_X.unsqueeze(-1) * p_s_and_t_given_0_X #[N,d0,d_t-1]
-        unnormalized_prob_X = weighted_X.sum(dim=1)             #[N,d_t-1]
-        unnormalized_prob_X[torch.sum(unnormalized_prob_X, dim=-1) == 0] = 1e-5
-        prob_X = unnormalized_prob_X / torch.sum(unnormalized_prob_X, dim=-1, keepdim=True)  #[N,d_t-1]
-        # prob_X = prob_X/temperature
-        sample_s = prob_X.multinomial(1).squeeze()
-        # sample_s = prob_X.argmax(1).squeeze()
-        X_s = F.one_hot(sample_s,num_classes = 20).float()
-        
-        return X_s, None
+        return zt - (_t - _r) * v_pred
     
-    def sample(self,data,cond = False,temperature=1.0,stop = 0):
-        limit_dist = torch.ones(20)/20
-        zt = self.sample_discrete_feature_noise(limit_dist = limit_dist,num_node = data.x.shape[0]) #[N,20] one hot 
-        zt = zt.to(data.x.device)
+    def sample(self,data, cond = False):
+        zt = torch.randn_like(data.x)
         t_vals = torch.linspace(1.0, 0.0, self.sampling_timesteps + 1, device=data.x.device)
         for i in range(self.sampling_timesteps):
             #z_t-1 ~p(z_t-1|z_t),
             t = torch.full((data.batch[-1].item()+1, 1), t_vals[i], device=data.x.device)
             r = torch.full((data.batch[-1].item()+1, 1), t_vals[i + 1], device=data.x.device)
-            zt, final_predicted_X  = self.sample_p_zs_given_zt(t, r, zt, data, temperature, last_step=r==stop)
-        return zt,final_predicted_X
+            zt = self.sample_p_zs_given_zt(t, r, zt, data)
+        pred = zt / self.temperature
+        pred_X = F.softmax(pred, dim=-1)
+        sample_s = pred_X.argmax(dim=1)
+        final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
+        return zt, final_predicted_X
 
     def sample_t_r(self, batch_size, device):
         if self.time_dist[0] == 'uniform':
@@ -546,12 +496,13 @@ class Sparse_DIGRESS(nn.Module):
         return t[:, None], r[:, None]
 
 
-    def forward(self,data,logit=False):
+    def forward(self, data):
         t, r = self.sample_t_r(data.batch[-1].item()+1, data.x.device)
         _t, _r = t[data.batch], r[data.batch]
-        limit_dist = torch.ones(20) / 20
-        e = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0]).to(data.x.device)
-        noise_data = self.apply_noise(data, t)
+        e = torch.randn_like(data.x)
+        x = (1 - _t) * data.x + _t * e
+        noise_data = data.clone()
+        noise_data.x = x
         x, pos, extra_x, edge_index, edge_attr, ss, batch = noise_data.x, noise_data.pos, noise_data.extra_x, noise_data.edge_index, noise_data.edge_attr, noise_data.ss, noise_data.batch
 
         if self.objective == 'pred_x0':
@@ -562,9 +513,9 @@ class Sparse_DIGRESS(nn.Module):
             raise ValueError(f'unknown objective {self.objective}')
 
         def u_fn(x, t, r, pos=None, extra_x=None, edge_index=None, edge_attr=None, ss=None, batch=None):
-            return (x - self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)[0]) / torch.clip(_t, min=0.05)
+            return (x - self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)[0]) / torch.clip(t[batch], min=0.05)
 
-        v = u_fn(x, t, r, pos, extra_x, edge_index, edge_attr, ss, batch)
+        v = u_fn(x, t, t, pos, extra_x, edge_index, edge_attr, ss, batch)
         jvp_args = (
             partial(u_fn, pos=pos, extra_x=extra_x, edge_index=edge_index, edge_attr=edge_attr, ss=ss, batch=batch),
             (x, t, r),
@@ -572,10 +523,9 @@ class Sparse_DIGRESS(nn.Module):
         )
         u, dudt = torch.func.jvp(*jvp_args)
         V = u + (_t - _r) * dudt.detach()
-         #have parameter
-        loss = self.loss_fn(V, e - target,reduction='mean')
+        loss = self.loss_fn(V, e - target * self.temperature,reduction='mean')
         
-        return loss, loss, None
+        return loss
 
 
 def seq_recovery(data,pred_seq):
@@ -717,14 +667,9 @@ class Trainer(object):
                 for _ in range(self.gradient_accumulate_every):
                     # data = next(self.dl).to(device)
                     data = next(self.dl)
-                    loss,ce_loss,mse_loss = self.model(data)
+                    loss = self.model(data)
                     loss = loss / self.gradient_accumulate_every
-                    ce_loss = ce_loss / self.gradient_accumulate_every
                     total_loss += loss.mean().item()
-                    total_ce_loss += ce_loss.mean().item()
-                    if self.config['pred_sasa']: 
-                        total_mse_loss += mse_loss.mean().item()
-
                     loss.mean().backward()
 
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config['clip_grad_norm'])
@@ -757,9 +702,9 @@ class Trainer(object):
                         for data in self.val_loader:
                             data = data.to(device)
                             
-                            val_loss,ce_loss,mse_loss = self.ema.ema_model(data)
+                            val_loss = self.ema.ema_model(data)
 
-                            zt,sample_graph = self.ema.ema_model.sample(data,self.config['sample_temperature'],stop = 0,step=100) #zt is the output of Neural Netowrk and sample graph is a sample of it
+                            zt,sample_graph = self.ema.ema_model.sample(data) #zt is the output of Neural Netowrk and sample graph is a sample of it
                             recovery = np.mean(seq_recovery(data,sample_graph))
                             sub_list.append(recovery)
                             
@@ -835,7 +780,7 @@ class Trainer(object):
                 print('data batch:', data.batch)
                 data = data.to(device)
                 
-                zt,sample_graph = self.ema.ema_model.sample(data,self.config['sample_temperature'],stop = 0,step=100) #zt is the output of Neural Netowrk and sample graph is a sample of it
+                zt,sample_graph = self.ema.ema_model.sample(data) #zt is the output of Neural Netowrk and sample graph is a sample of it
                 if type(sample_graph) is list:
                     # print('sample_graph: ', sample_graph)
                     for i, sample_graph_at_given_ratio in enumerate(sample_graph):
@@ -999,7 +944,7 @@ if __name__ == "__main__" :
     
     # model = DataParallel(model)
     
-    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'])
+    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'], temperature=config['sample_temperature'])
 
     trainer  = Trainer(config,
                        diffusion,
