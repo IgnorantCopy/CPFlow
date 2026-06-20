@@ -381,4 +381,5 @@ dataset/
 ckpt/
 checkpoint/
 log/
+result/
 *.ipynb
