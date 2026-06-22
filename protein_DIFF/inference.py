@@ -78,7 +78,7 @@ if __name__ == '__main__':
     edge_attr_dim = target_protein_test_dataset[0].edge_attr.shape[1]
 
     model = EGNN_NET(input_feat_dim=input_feat_dim,hidden_channels=config['hidden_dim'],edge_attr_dim=edge_attr_dim,dropout=config['drop_out'],n_layers=config['depth'],update_edge = True,embedding=config['embedding'],embedding_dim=config['embedding_dim'],norm_feat=config['norm_feat'],output_dim=20,embedding_ss=config['embed_ss'])
-    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'], temperature=1.0)
+    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'])
     # print param number
     num_params = sum(p.numel() for p in diffusion.parameters() if p.requires_grad)
     print(f'number of parameters: {num_params}')

@@ -1,11 +1,9 @@
 import math
 import os
 import argparse
-from functools import partial
 from pathlib import Path
 from multiprocessing import cpu_count
-import random 
-
+import random
 
 import numpy as np
 import pandas as pd
@@ -16,9 +14,9 @@ import torch
 import torch.nn as nn
 from torch.nn import Linear
 import torch.nn.functional as F
-from torch.optim import Adam,AdamW
+from torch.optim import Adam, AdamW
 import torch_geometric
-from torch_geometric.data import Batch,Data
+from torch_geometric.data import Batch, Data
 from torch_geometric.loader import DataListLoader, DataLoader
 from torch_geometric.nn import DataParallel
 
@@ -29,11 +27,11 @@ from ema_pytorch import EMA
 
 from dgd.diffusion.noise_schedule import PredefinedNoiseScheduleDiscrete
 from model.egnn_pytorch.egnn_pyg_v2 import EGNN_Sparse
-from model.egnn_pytorch.utils import nodeEncoder,edgeEncoder
+from model.egnn_pytorch.utils import nodeEncoder, edgeEncoder
 # from dataset_src.cath_imem_2nd import Cath_imem,dataset_argument
 from dataset.large_dataset import Cath
-from dataset.utils import NormalizeProtein,substitute_label
-from dataset.cath_imem_2nd import Cath_imem,dataset_argument
+from dataset.utils import NormalizeProtein, substitute_label
+from dataset.cath_imem_2nd import Cath_imem, dataset_argument
 
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -43,16 +41,20 @@ from MSA_Transition_Matrix import MSA_retrieval
 amino_acids_type = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I',
                     'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
 
+
 def has_nan_or_inf(tensor):
-    return torch.isnan(tensor).any() or torch.isinf(tensor).any() or (tensor<0).any()
+    return torch.isnan(tensor).any() or torch.isinf(tensor).any() or (tensor < 0).any()
+
 
 def exists(x):
     return x is not None
+
 
 def cycle(dl):
     while True:
         for data in dl:
             yield data
+
 
 def num_to_groups(num, divisor):
     groups = num // divisor
@@ -68,35 +70,35 @@ def get_struc2ndRes(struc_2nds_res_filename):
     char_to_int = dict((c, i) for i, c in enumerate(struc_2nds_res_alphabet))
 
     if os.path.isfile(struc_2nds_res_filename):
-        #open text file in read mode
+        # open text file in read mode
         text_file = open(struc_2nds_res_filename, "r")
-        #read whole file to a string
+        # read whole file to a string
         data = text_file.read()
-        #close file
+        # close file
         text_file.close()
         # integer encode input data
         integer_encoded = [char_to_int[char] for char in data]
         print(len(data))
-        data = F.one_hot(torch.tensor(integer_encoded), num_classes = 8)
+        data = F.one_hot(torch.tensor(integer_encoded), num_classes=8)
         return data
     else:
         print('Warning: ' + struc_2nds_res_filename + 'does not exist')
         return None
 
 
-def pdb2graph(dataset,filename,struc_2nd_res_file):
+def pdb2graph(dataset, filename, struc_2nd_res_file):
     rec, rec_coords, c_alpha_coords, n_coords, c_coords = dataset.get_receptor_inference(filename)
     # struc_2nd_res_file = 'dataset/evaluation/DATASET/AMIE_PSEAE/ss'
     struc_2nd_res = get_struc2ndRes(struc_2nd_res_file)
     rec_graph = dataset.get_calpha_graph(
-                rec, c_alpha_coords, n_coords, c_coords, rec_coords, struc_2nd_res)
+        rec, c_alpha_coords, n_coords, c_coords, rec_coords, struc_2nd_res)
     normalize_transform = NormalizeProtein(filename='dataset/cath40_k10_imem_add2ndstrc/mean_attr.pt')
-    
+
     graph = normalize_transform(rec_graph)
     return graph
 
 
-def prepare_mutation_graph(protein,dataset):
+def prepare_mutation_graph(protein, dataset):
     '''
     Input DSM protein filename
 
@@ -104,112 +106,112 @@ def prepare_mutation_graph(protein,dataset):
     '''
 
     print('generative graph from pdb')
-    filename = 'dataset/evaluation/DATASET/'+protein+'/'+protein+'.pdb'
-    struc_2nd_res_file = 'dataset/evaluation/DATASET/'+protein+'/'+'ss'
-    graph = pdb2graph(dataset,filename,struc_2nd_res_file)
+    filename = 'dataset/evaluation/DATASET/' + protein + '/' + protein + '.pdb'
+    struc_2nd_res_file = 'dataset/evaluation/DATASET/' + protein + '/' + 'ss'
+    graph = pdb2graph(dataset, filename, struc_2nd_res_file)
 
-    
-    mutation_record_file = 'dataset/evaluation/DATASET/'+protein+'/'+protein+'.1.tsv' #.1 means single site mutation
-    mutation_record = pd.read_csv(mutation_record_file, sep = '\t')
+    mutation_record_file = 'dataset/evaluation/DATASET/' + protein + '/' + protein + '.1.tsv'  # .1 means single site mutation
+    mutation_record = pd.read_csv(mutation_record_file, sep='\t')
 
-    type1, type2, location,score = [], [], [],[]
+    type1, type2, location, score = [], [], [], []
     for i in mutation_record.index:
-        if int(mutation_record.loc[i,'mutant'][1:-1]) != graph.distances.shape[0] and '_' not in mutation_record.loc[i,'mutant']:#not record last position
-            type1.append((mutation_record.loc[i,'mutant'][0]))
-            location.append(int(mutation_record.loc[i,'mutant'][1:-1]))
-            type2.append(mutation_record.loc[i,'mutant'][-1])
-            score.append(mutation_record.loc[i,'score'])
-    short_location = list(set(location)) 
+        if int(mutation_record.loc[i, 'mutant'][1:-1]) != graph.distances.shape[0] and '_' not in mutation_record.loc[
+            i, 'mutant']:  # not record last position
+            type1.append((mutation_record.loc[i, 'mutant'][0]))
+            location.append(int(mutation_record.loc[i, 'mutant'][1:-1]))
+            type2.append(mutation_record.loc[i, 'mutant'][-1])
+            score.append(mutation_record.loc[i, 'score'])
+    short_location = list(set(location))
     short_location.sort()
     graph_list = []
     for loc in short_location:
         graph_ = Data.clone(graph)
-        graph_.mutation_pos = loc-1
+        graph_.mutation_pos = loc - 1
         graph_list.append(graph_)
-    
-    return graph_list,type1,type2,location,score
+
+    return graph_list, type1, type2, location, score
 
 
 @torch.no_grad()
-def compute_single_site_corr_score_all(diffusion,dataset,corr_train_record,pred_sasa,stop=450):
+def compute_single_site_corr_score_all(diffusion, dataset, corr_train_record, pred_sasa, stop=450):
     DSM_list = os.listdir('dataset/evaluation/DATASET')
     DSM_list.remove('.DS_Store')
     DSM_list.sort()
     corr_list = []
     count_list = []
     all_score_record = []
-    for index,protein in enumerate(DSM_list):
-        
-        graph_list,type1,type2,location,score = prepare_mutation_graph(protein,dataset)
+    for index, protein in enumerate(DSM_list):
+
+        graph_list, type1, type2, location, score = prepare_mutation_graph(protein, dataset)
         short_loc = list(set(location))
         short_loc.sort()
-        pred_list,pred_scratch_list =[], []
-    
-        pred_score_list,pred_score_scratch_list =[], []
+        pred_list, pred_scratch_list = [], []
+
+        pred_score_list, pred_score_scratch_list = [], []
 
         for realization in range(10):
             pred_score = []
-            pred = torch.tensor([],device='cuda:0')
+            pred = torch.tensor([], device='cuda:0')
             graph = [graph_list[0]]
             data = Batch.from_data_list(graph)
             data_input = Data.clone(data)
             if pred_sasa:
-                data_input.extra_x = torch.cat([data.x[:,22:],data.mu_r_norm],dim = 1)
+                data_input.extra_x = torch.cat([data.x[:, 22:], data.mu_r_norm], dim=1)
             else:
-                data_input.extra_x = torch.cat([data.x[:,20].unsqueeze(dim=1),data.x[:,22:],data.mu_r_norm],dim = 1)
-            data_input.x = data.x[:,:20].to(torch.float32)
-            data_input.to('cuda:0')            
-            t_int = torch.ones(size=(data.batch[-1].item()+1, 1), device=data_input.x.device).float()*(500-stop)
-            noise_data = diffusion.apply_noise(data_input ,t_int)
-            pred,_ = diffusion.model(noise_data,t_int)
+                data_input.extra_x = torch.cat([data.x[:, 20].unsqueeze(dim=1), data.x[:, 22:], data.mu_r_norm], dim=1)
+            data_input.x = data.x[:, :20].to(torch.float32)
+            data_input.to('cuda:0')
+            t_int = torch.ones(size=(data.batch[-1] + 1, 1), device=data_input.x.device).float() * (500 - stop)
+            noise_data = diffusion.apply_noise(data_input, t_int)
+            pred, _ = diffusion.model(noise_data, t_int)
             pred_list.append(pred)
 
             # zt,sample_graph = diffusion.sample(data_input,1.0,stop=stop)
             pred_scratch_list.append(pred)
-        averge_pred = torch.stack(pred_list).mean(dim = 0)#TODO fixed batch_size < number of graph bug
-        averge_pred_scratch = torch.stack(pred_scratch_list).mean(dim = 0)
-        print((averge_pred_scratch.argmax(dim =1).cpu() == data.x[:,:20].argmax(dim =1)).sum()/data.x.shape[0])
-        print((averge_pred.argmax(dim =1).cpu() == data.x[:,:20].argmax(dim =1)).sum()/data.x.shape[0])
-            # if realization%10 == 0:
-            #     cat = torch.stack(pred_list).mean(dim = 0)[mutation_index[0]]
-            #     plt.bar(list(range(20)),cat.cpu().detach().numpy())
-            #     plt.savefig(f'protein_DIFF/results/sample_result/Feb_14th_posterior distribution on {realization} average with temperature{temperature}.png')
-            #     plt.close()
+        averge_pred = torch.stack(pred_list).mean(dim=0)  # TODO fixed batch_size < number of graph bug
+        averge_pred_scratch = torch.stack(pred_scratch_list).mean(dim=0)
+        print((averge_pred_scratch.argmax(dim=1).cpu() == data.x[:, :20].argmax(dim=1)).sum() / data.x.shape[0])
+        print((averge_pred.argmax(dim=1).cpu() == data.x[:, :20].argmax(dim=1)).sum() / data.x.shape[0])
+        # if realization%10 == 0:
+        #     cat = torch.stack(pred_list).mean(dim = 0)[mutation_index[0]]
+        #     plt.bar(list(range(20)),cat.cpu().detach().numpy())
+        #     plt.savefig(f'protein_DIFF/results/sample_result/Feb_14th_posterior distribution on {realization} average with temperature{temperature}.png')
+        #     plt.close()
 
         # all_data = Batch.from_data_list(graph_list).to('cuda:0')
         # mutation_index = all_data.ptr[:-1]+all_data.mutation_pos
         # acc = (averge_pred[mutation_index].argmax(dim=1) == all_data.x[mutation_index].argmax(dim=1) ).sum()/all_data.x[mutation_index].argmax(dim=1).shape[0]
-        
-        for ind,wild_type in enumerate(type1):
+
+        for ind, wild_type in enumerate(type1):
             # pred_scratch_score = averge_pred_scratch.cpu()[location[ind]-1][amino_acids_type.index(type2[ind])] - averge_pred_scratch.cpu()[location[ind]-1][amino_acids_type.index(type1[ind])]
             # pred_score = averge_pred.cpu()[location[ind]-1][amino_acids_type.index(type2[ind])] - averge_pred.cpu()[location[ind]-1][amino_acids_type.index(type1[ind])]
-            
-            target = data.x[:,:20].argmax(dim =1).clone()
-            target[location[ind]-1] = amino_acids_type.index(type2[ind])
-            pred_scratch_score = F.cross_entropy(averge_pred_scratch.cpu(),target)
-            pred_score = F.cross_entropy(averge_pred.cpu(),target)
+
+            target = data.x[:, :20].argmax(dim=1).clone()
+            target[location[ind] - 1] = amino_acids_type.index(type2[ind])
+            pred_scratch_score = F.cross_entropy(averge_pred_scratch.cpu(), target)
+            pred_score = F.cross_entropy(averge_pred.cpu(), target)
             pred_score_list.append(-pred_score.item())
             pred_score_scratch_list.append(-pred_scratch_score.item())
 
-        corr = spearmanr(pred_score_list,score)[0]
-        corr_scratch = spearmanr(pred_score_scratch_list,score)[0]
-        print(protein,'step=',stop,corr,corr_scratch,len(type1))
-    
-        all_score_record.append([protein,stop,corr,corr_scratch])
+        corr = spearmanr(pred_score_list, score)[0]
+        corr_scratch = spearmanr(pred_score_scratch_list, score)[0]
+        print(protein, 'step=', stop, corr, corr_scratch, len(type1))
+
+        all_score_record.append([protein, stop, corr, corr_scratch])
         corr_list.append(np.abs(corr))
         count_list.append(len(type1))
         corr_train_record[index].append(np.abs(corr))
 
-            # plt.plot(list(range(realization+1)),corr_list)
-            # plt.savefig(f'protein_DIFF/results/sample_result/Feb_14th_corr_vs_num_of_sample__{realization} with temperature{temperature}.png',dpi = 200)
-            # plt.title(protein+'spearman_corr')
-            # plt.close()
-    
+        # plt.plot(list(range(realization+1)),corr_list)
+        # plt.savefig(f'protein_DIFF/results/sample_result/Feb_14th_corr_vs_num_of_sample__{realization} with temperature{temperature}.png',dpi = 200)
+        # plt.title(protein+'spearman_corr')
+        # plt.close()
+
     # torch.save(torch.tensor(corr_list),'corr_vs_step.pt')
     weight_average = 0
-    for ind,corr in enumerate(corr_list):
-        weight_average += count_list[ind]/sum(count_list) * corr_list[ind]
-    return weight_average,corr_train_record,DSM_list
+    for ind, corr in enumerate(corr_list):
+        weight_average += count_list[ind] / sum(count_list) * corr_list[ind]
+    return weight_average, corr_train_record, DSM_list
 
 
 class SinusoidalPosEmb(nn.Module):
@@ -224,12 +226,12 @@ class SinusoidalPosEmb(nn.Module):
         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
         emb = x[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-        return emb.view(emb.shape[0],-1)
+        return emb.view(emb.shape[0], -1)
 
 
 class EGNN_NET(torch.nn.Module):
-    def __init__(self, input_feat_dim, hidden_channels, edge_attr_dim,  dropout, n_layers, output_dim = 20,
-                 embedding=False, embedding_dim=64,update_edge = True,norm_feat = False,embedding_ss = False):
+    def __init__(self, input_feat_dim, hidden_channels, edge_attr_dim, dropout, n_layers, output_dim=20,
+                 embedding=False, embedding_dim=64, update_edge=True, norm_feat=False, embedding_ss=False):
         super(EGNN_NET, self).__init__()
         torch.manual_seed(12345)
         self.dropout = dropout
@@ -245,93 +247,91 @@ class EGNN_NET(torch.nn.Module):
         self.output_dim = output_dim
         self.embedding_ss = embedding_ss
 
-        self.t_embedding = nn.Sequential(self.sinu_pos_emb, nn.Linear(hidden_channels, hidden_channels), nn.SiLU(),
-                                         nn.Linear(hidden_channels, embedding_dim))
-        self.r_embedding = nn.Sequential(self.sinu_pos_emb, nn.Linear(hidden_channels, hidden_channels), nn.SiLU(),
-                                         nn.Linear(hidden_channels, embedding_dim))
+        self.time_mlp = nn.Sequential(self.sinu_pos_emb, nn.Linear(hidden_channels, hidden_channels), nn.SiLU(),
+                                      nn.Linear(hidden_channels, embedding_dim))
 
         self.ss_mlp = nn.Sequential(nn.Linear(8, hidden_channels), nn.SiLU(),
-                                    nn.Linear(hidden_channels, embedding_dim))     
+                                    nn.Linear(hidden_channels, embedding_dim))
 
         for i in range(n_layers):
             if i == 0:
-                layer = EGNN_Sparse(embedding_dim, m_dim=hidden_channels,hidden_dim=hidden_channels,out_dim=hidden_channels, edge_attr_dim=embedding_dim, dropout=dropout,
-                                    update_edge = self.update_edge,norm_feats=norm_feat)
-            else: 
-                layer = EGNN_Sparse(hidden_channels, m_dim=hidden_channels,hidden_dim=hidden_channels,out_dim=hidden_channels, edge_attr_dim=embedding_dim, dropout=dropout,
-                                    update_edge = self.update_edge,norm_feats=norm_feat)                
-            
+                layer = EGNN_Sparse(embedding_dim, m_dim=hidden_channels, hidden_dim=hidden_channels,
+                                    out_dim=hidden_channels, edge_attr_dim=embedding_dim, dropout=dropout,
+                                    update_edge=self.update_edge, norm_feats=norm_feat)
+            else:
+                layer = EGNN_Sparse(hidden_channels, m_dim=hidden_channels, hidden_dim=hidden_channels,
+                                    out_dim=hidden_channels, edge_attr_dim=embedding_dim, dropout=dropout,
+                                    update_edge=self.update_edge, norm_feats=norm_feat)
+
             time_mlp_layer = nn.Sequential(nn.SiLU(), nn.Linear(embedding_dim, (hidden_channels) * 2))
             ff_norm = torch_geometric.nn.norm.LayerNorm(hidden_channels)
-            ff_layer = nn.Sequential(nn.Linear(hidden_channels, hidden_channels*4), nn.Dropout(p=dropout),nn.GELU(),nn.Linear(hidden_channels*4, hidden_channels)) 
+            ff_layer = nn.Sequential(nn.Linear(hidden_channels, hidden_channels * 4), nn.Dropout(p=dropout), nn.GELU(),
+                                     nn.Linear(hidden_channels * 4, hidden_channels))
 
             self.mpnn_layes.append(layer)
             self.time_mlp_list.append(time_mlp_layer)
             self.ff_list.append(ff_layer)
             self.ff_norm_list.append(ff_norm)
 
-
         if output_dim == 20:
-            self.node_embedding = nodeEncoder(embedding_dim,feature_num=4)
-        else:    
-            self.node_embedding = nodeEncoder(embedding_dim,feature_num=3)
+            self.node_embedding = nodeEncoder(embedding_dim, feature_num=4)
+        else:
+            self.node_embedding = nodeEncoder(embedding_dim, feature_num=3)
 
         self.edge_embedding = edgeEncoder(embedding_dim)
         self.lin = Linear(hidden_channels, output_dim)
 
+    def forward(self, data, time):
+        # data.x first 20 dim is noise label. 21 to 34 is knowledge from backbone, e.g. mu_r_norm, sasa, b factor and so on
+        x, pos, extra_x, edge_index, edge_attr, ss, batch = data.x, data.pos, data.extra_x, data.edge_index, data.edge_attr, data.ss, data.batch
 
-    def forward(self, x, pos, extra_x, edge_index, edge_attr,ss, batch, t, r):
-        #data.x first 20 dim is noise label. 21 to 34 is knowledge from backbone, e.g. mu_r_norm, sasa, b factor and so on
-
-        t = self.t_embedding(t)
-        r = self.r_embedding(r)
-        c = t + r
+        t = self.time_mlp(time)
 
         ss_embed = self.ss_mlp(ss)
 
-        x = torch.cat([x,extra_x],dim=1)
+        x = torch.cat([x, extra_x], dim=1)
         if self.embedding:
             x = self.node_embedding(x)
             edge_attr = self.edge_embedding(edge_attr)
         x = torch.cat([pos, x], dim=1)
 
         for i, layer in enumerate(self.mpnn_layes):
-            #GNN aggregate
+            # GNN aggregate
             if self.update_edge:
-                h,edge_attr = layer(x, edge_index, edge_attr, batch) #[N,hidden_dim]
+                h, edge_attr = layer(x, edge_index, edge_attr, batch)  # [N,hidden_dim]
             else:
-                h = layer(x, edge_index, edge_attr, batch) #[N,hidden_dim]
-            
-            #time and conditional shift
-            corr, feats = h[:,0:3],h[:,3:]
-            time_emb = self.time_mlp_list[i](c) #[B,hidden_dim*2]
-            scale_, shift_ = time_emb.chunk(2,dim=1)
-            scale = scale_[batch]
-            shift = shift_[batch]
-            feats = feats*(scale+1) +shift
-            
-            #FF neural network
-            feature_norm = self.ff_norm_list[i](feats,batch)
+                h = layer(x, edge_index, edge_attr, batch)  # [N,hidden_dim]
+
+            # time and conditional shift
+            corr, feats = h[:, 0:3], h[:, 3:]
+            time_emb = self.time_mlp_list[i](t)  # [B,hidden_dim*2]
+            scale_, shift_ = time_emb.chunk(2, dim=1)
+            scale = scale_[data.batch]
+            shift = shift_[data.batch]
+            feats = feats * (scale + 1) + shift
+
+            # FF neural network
+            feature_norm = self.ff_norm_list[i](feats, batch)
             feats = self.ff_list[i](feature_norm) + feature_norm
 
-            #TODO add skip connect
-            x = torch.cat([corr, feats], dim=-1) 
+            # TODO add skip connect
+            x = torch.cat([corr, feats], dim=-1)
 
-
-        corr, x = x[:,0:3],x[:,3:]
+        corr, x = x[:, 0:3], x[:, 3:]
         if self.embedding_ss:
-            x = x+ss_embed 
+            x = x + ss_embed
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.lin(x)
         if self.output_dim == 21:
-            return x[:,:20],x[:,20]
+            return x[:, :20], x[:, 20]
         else:
             return x, None
 
 
 class BlosumTransition:
-    def __init__(self, blosum_path='dataset_src/blosum_substitute.pt',x_classes=20,timestep = 500):
-        self.original_score,self.temperature_list = torch.load(blosum_path)['original_score'], torch.load(blosum_path)['temperature']
+    def __init__(self, blosum_path='dataset_src/blosum_substitute.pt', x_classes=20, timestep=500):
+        self.original_score, self.temperature_list = torch.load(blosum_path)['original_score'], torch.load(blosum_path)[
+            'temperature']
         self.X_classes = x_classes
         self.timestep = timestep
         self.u_x = torch.ones(1, self.X_classes, self.X_classes)
@@ -343,7 +343,7 @@ class BlosumTransition:
         # else:
         temperature_list = self.temperature_list.unsqueeze(dim=0)
         temperature_list = temperature_list.unsqueeze(dim=0)
-        output_tensor = F.interpolate(temperature_list, size=timestep+1, mode='linear', align_corners=True)
+        output_tensor = F.interpolate(temperature_list, size=timestep + 1, mode='linear', align_corners=True)
         self.temperature_list = output_tensor.squeeze()
 
     def get_Qt_bar(self, t_int, device):
@@ -356,8 +356,8 @@ class BlosumTransition:
         self.original_score = self.original_score.to(device)
         self.temperature_list = self.temperature_list.to(device)
         temperatue = self.temperature_list[t_int.long()]
-        q_x = self.original_score.unsqueeze(0)/temperatue.unsqueeze(2)
-        q_x = torch.softmax(q_x,dim=2)
+        q_x = self.original_score.unsqueeze(0) / temperatue.unsqueeze(2)
+        q_x = torch.softmax(q_x, dim=2)
         return q_x
 
 
@@ -368,7 +368,6 @@ class DiscreteUniformTransition:
         self.u_x = torch.ones(1, self.X_classes, self.X_classes)
         if self.X_classes > 0:
             self.u_x = self.u_x / self.X_classes
-
 
     def get_Qt(self, beta_t, device):
         """ Returns one-step transition matrices for X and E, from step t - 1 to step t.
@@ -396,29 +395,32 @@ class DiscreteUniformTransition:
         t_float = t_float.to(device)
         self.u_x = self.u_x.to(device)
 
-        q_x = (1 - t_float) * torch.eye(self.X_classes, device=device).unsqueeze(0) + t_float * self.u_x.to(device)
+        q_x = t_float * torch.eye(self.X_classes, device=device).unsqueeze(0) + (1 - t_float) * self.u_x.to(device)
 
         return q_x
 
 
 class Sparse_DIGRESS(nn.Module):
-    def __init__(self,model,config,*,sampling_timesteps = 5,loss_type='l1',objective = 'pred_x0', label_smooth_tem=1.0,
-                 time_dist=("lognorm", -0.4, 1.0), flow_ratio=0.5, temperature):
+    def __init__(self, model, config, *, timesteps=1000, sampling_timesteps=None, loss_type='CE', objective='pred_x0',
+                 label_smooth_tem=1.0):
         super().__init__()
         self.model = model
+        # self.self_condition = self.model.self_condition
         self.objective = objective
-        self.sampling_timesteps = sampling_timesteps
+        self.timesteps = timesteps
         self.loss_type = loss_type
         self.noise_type = config['noise_type']
-        self.time_dist = time_dist
-        self.flow_ratio = flow_ratio
-        self.temperature = temperature
-        self.config  = config
+        self.config = config
         if config['noise_type'] == 'uniform':
             self.transition_model = DiscreteUniformTransition(x_classes=20)
+        elif config['noise_type'] == 'blosum':
+            self.transition_model = BlosumTransition(timestep=self.timesteps + 1)
 
         self.label_smooth_tem = label_smooth_tem
-        assert objective in {'pred_noise', 'pred_x0', 'pred_v','smooth_x0'}, 'objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])'
+        assert objective in {'pred_noise', 'pred_x0', 'pred_v',
+                             'smooth_x0'}, 'objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])'
+
+        # self.noise_schedule = PredefinedNoiseScheduleDiscrete(noise_schedule='cosine',timesteps=self.timesteps,noise_type=self.noise_type)
 
     @property
     def loss_fn(self):
@@ -429,117 +431,247 @@ class Sparse_DIGRESS(nn.Module):
         elif self.loss_type == 'CE':
             return F.cross_entropy
 
-    def apply_noise(self,data,t):
+    def apply_noise(self, data, t_float):
+        # t_float = t_int / self.timesteps
+        # alpha_t_bar = self.noise_schedule.get_alpha_bar(t_normalized=t_float)      # (bs, 1)
         device = data.x.device
-        Qtb = self.transition_model.get_Qt_bar(t, device=device)
-        prob_X = (Qtb[data.batch]@data.x[:,:20].unsqueeze(2)).squeeze()
-        prob_X = prob_X/prob_X.sum(dim = 1, keepdim=True)
+        Qtb = self.transition_model.get_Qt_bar(t_float, device=device)
+        prob_X = (Qtb[data.batch] @ data.x[:, :20].unsqueeze(2)).squeeze()
+        prob_X = prob_X / prob_X.sum(dim=1, keepdim=True)
 
         X_t = prob_X.multinomial(1).squeeze()
-        noise_X = F.one_hot(X_t,num_classes = 20)
+        noise_X = F.one_hot(X_t, num_classes=20)
         noise_data = data.clone()
-        noise_data.x = noise_X.to(data.x)
-        
+        noise_data.x = noise_X.to(data.x.device)
+
         return noise_data
-    
-    def sample_p_zs_given_zt(self,t,r,zt,data,cond=False):
+
+    def sample_discrete_feature_noise(self, limit_dist, num_node):
+        x_limit = limit_dist[None, :].expand(num_node, -1)  # [num_node,20]
+        U_X = x_limit.flatten(end_dim=-2).multinomial(1).squeeze()
+        U_X = F.one_hot(U_X, num_classes=x_limit.shape[-1]).float()
+        return U_X
+
+    def compute_batched_over0_posterior_distribution(self, X_t, Q_t, Qsb, Qtb, data):
+        """ M: X or E
+        Compute xt @ Qt.T * x0 @ Qsb / x0 @ Qtb @ xt.T for each possible value of x0
+        X_t: bs, n, dt          or bs, n, n, dt
+        Qt: bs, d_t-1, dt
+        Qsb: bs, d0, d_t-1
+        Qtb: bs, d0, dt.
+        """
+        # X_t is a sample of q(x_t|x_t+1)
+        Qt_T = Q_t.transpose(-1, -2)
+        X_t_ = X_t.unsqueeze(dim=-2)
+        left_term = X_t_ @ Qt_T[data.batch]  # [N,1,d_t-1]
+        # left_term = left_term.unsqueeze(dim = 1) #[N,1,dt-1]
+
+        right_term = Qsb[data.batch]  # [N,d0,d_t-1]
+
+        numerator = left_term * right_term  # [N,d0,d_t-1]
+
+        prod = Qtb[data.batch] @ X_t.unsqueeze(dim=2)  # N,d0,1
+        denominator = prod
+        denominator[denominator == 0] = 1e-6
+
+        out = numerator / denominator
+
+        return out
+
+    def sample_p_zs_given_zt(self, t, s, zt, data, temperature, last_step, cond=False):
         """
         sample zs~p(zs|zt)
         """
+        t_float = t / self.timesteps
+        s_float = s / self.timesteps
+        Qtb = self.transition_model.get_Qt_bar(t_float, data.x.device)
+        Qsb = self.transition_model.get_Qt_bar(s_float, data.x.device)
+        Qt = (Qtb / Qsb) / (Qtb / Qsb).sum(dim=1).unsqueeze(dim=2)
+
         noise_data = data.clone()
-        noise_data.x = zt #x_t
-        x, pos, extra_x, edge_index, edge_attr, ss, batch = noise_data.x, noise_data.pos, noise_data.extra_x, noise_data.edge_index, noise_data.edge_attr, noise_data.ss, noise_data.batch
-        pred,_ = self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)
+        noise_data.x = zt  # x_t
+        pred, _ = self.model(noise_data, t_float)
+        pred_X = F.softmax(pred, dim=-1)  # \hat{p(X)}_0
 
         if isinstance(cond, torch.Tensor):
-            pred[cond] = data.x[cond]
+            pred_X[cond] = data.x[cond]
 
-        _t, _r = t[batch], r[batch]
-        v_pred = (zt - pred) / torch.clip(_t, min=0.05)
+        if last_step:
+            pred = pred ** temperature
+            pred_X = F.softmax(pred, dim=-1)
+            # sample_s = pred_X.multinomial(1).squeeze()
+            sample_s = pred_X.argmax(dim=1)
+            final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
 
-        return zt - (_t - _r) * v_pred
-    
-    def sample(self,data, cond = False):
-        zt = torch.randn_like(data.x)
-        t_vals = torch.linspace(1.0, 0.0, self.sampling_timesteps + 1, device=data.x.device)
-        for i in range(self.sampling_timesteps):
-            #z_t-1 ~p(z_t-1|z_t),
-            t = torch.full((data.batch[-1].item()+1, 1), t_vals[i], device=data.x.device)
-            r = torch.full((data.batch[-1].item()+1, 1), t_vals[i + 1], device=data.x.device)
-            zt = self.sample_p_zs_given_zt(t, r, zt, data)
-        pred = zt / self.temperature
-        pred_X = F.softmax(pred, dim=-1)
-        sample_s = pred_X.argmax(dim=1)
-        final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
+            return pred, final_predicted_X
+
+        p_s_and_t_given_0_X = self.compute_batched_over0_posterior_distribution(X_t=zt, Q_t=Qt, Qsb=Qsb, Qtb=Qtb,
+                                                                                data=data)  # [N,d0,d_t-1] 20,20
+        weighted_X = pred_X.unsqueeze(-1) * p_s_and_t_given_0_X  # [N,d0,d_t-1]
+        unnormalized_prob_X = weighted_X.sum(dim=1)  # [N,d_t-1]
+        unnormalized_prob_X[torch.sum(unnormalized_prob_X, dim=-1) == 0] = 1e-5
+        prob_X = unnormalized_prob_X / torch.sum(unnormalized_prob_X, dim=-1, keepdim=True)  # [N,d_t-1]
+        # prob_X = prob_X/temperature
+        sample_s = prob_X.multinomial(1).squeeze()
+        # sample_s = prob_X.argmax(1).squeeze()
+        X_s = F.one_hot(sample_s, num_classes=20).float()
+
+        return X_s, None
+
+    def sample_p_zs_given_zt_MSA(self, t, s, zt, data, temperature, last_step, cond=False, MSA_retrieval_ratio=0):
+        """
+        sample zs~p(zs|zt)
+        """
+        Qtb = self.transition_model.get_Qt_bar(t, data.x.device)
+        Qsb = self.transition_model.get_Qt_bar(s, data.x.device)
+        Qt = (Qtb / Qsb) / (Qtb / Qsb).sum(dim=1).unsqueeze(dim=2)
+
+        noise_data = data.clone()
+        noise_data.x = zt  # x_t
+        pred, _ = self.model(noise_data, t)
+        pred_X = F.softmax(pred, dim=-1)  # \hat{p(X)}_0
+
+        if isinstance(cond, torch.Tensor):
+            pred_X[cond] = data.x[cond]
+
+        if last_step:
+            pred = pred ** temperature
+            pred_X = F.softmax(pred, dim=-1)
+            # add MSA distribution here
+            # 序列输入到tmp/i.fasta
+            MSA_pred_X = None
+            seq_list = [''] * (1 + data.batch[-1])
+            for i, aa_type in enumerate(data.x.argmax(dim=1)):
+                seq_list[data.batch[i]] += amino_acids_type[aa_type]
+            for i, seq in enumerate(seq_list):
+                print('seq len: ', len(seq), 'seq: ', seq)
+                record = SeqRecord(Seq(seq), id=str(i))
+                records = [record]
+                fasta_file = 'protein_DIFF/test_rr_tmp/' + str(i) + '.fasta'
+                MSA_a2m_file = 'protein_DIFF/test_rr_tmp/' + str(i) + '.a2m'
+                SeqIO.write(records, fasta_file, 'fasta')
+                if str(i) + '.a2m' not in os.listdir('protein_DIFF/test_rr_tmp/'):
+                    p = os.popen(
+                        'hhblits -i ' + fasta_file + ' -d /data/alphafold2/data/bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt -d /data/alphafold2/data/pdb70/pdb70 -d /data/alphafold2/data/uniclust30/uniclust30_2018_08/uniclust30_2018_08  -o example.hhr  -oa3m tmp.a3m  -n 3  -id 90  -cov 50  -cpu 8')
+                    print(p.read())
+                    p.close()
+                    p = os.popen(' reformat.pl tmp.a3m ' + MSA_a2m_file)
+                    print(p.read())
+                    p.close()
+                MSA_pred_X_single_seq = MSA_retrieval(MSA_a2m_file)
+                if MSA_pred_X is None:
+                    MSA_pred_X = MSA_pred_X_single_seq
+                else:
+                    MSA_pred_X = torch.cat([MSA_pred_X, MSA_pred_X_single_seq], dim=0)
+            print('MSA_pred_X shape: ', MSA_pred_X.shape)
+            print('MSA_pred_X: ', MSA_pred_X)
+            # os.removedirs('protein_DIFF/test_rr_tmp/')
+            # os.makedirs('protein_DIFF/test_rr_tmp/')
+
+            if type(MSA_retrieval_ratio) is list:
+                final_predicted_X_list = []
+                for ratio in MSA_retrieval_ratio:
+                    mixed_pred_X = (1 - ratio) * pred_X + ratio * MSA_pred_X
+                    sample_s = mixed_pred_X.argmax(dim=1)
+                    final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
+                    # final_predicted_X_list.append(final_predicted_X.clone())
+                    final_predicted_X_list.append(final_predicted_X)
+                return pred, final_predicted_X_list
+
+            else:
+                # sample_s = pred_X.multinomial(1).squeeze()
+                mixed_pred_X = (1 - MSA_retrieval_ratio) * pred_X + MSA_retrieval_ratio * MSA_pred_X
+                sample_s = mixed_pred_X.argmax(dim=1)
+                final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
+
+                return pred, final_predicted_X
+
+        p_s_and_t_given_0_X = self.compute_batched_over0_posterior_distribution(X_t=zt, Q_t=Qt, Qsb=Qsb, Qtb=Qtb,
+                                                                                data=data)  # [N,d0,d_t-1] 20,20
+        weighted_X = pred_X.unsqueeze(-1) * p_s_and_t_given_0_X  # [N,d0,d_t-1]
+        unnormalized_prob_X = weighted_X.sum(dim=1)  # [N,d_t-1]
+        unnormalized_prob_X[torch.sum(unnormalized_prob_X, dim=-1) == 0] = 1e-5
+        prob_X = unnormalized_prob_X / torch.sum(unnormalized_prob_X, dim=-1, keepdim=True)  # [N,d_t-1]
+        # prob_X = prob_X/temperature
+        sample_s = prob_X.multinomial(1).squeeze()
+        # sample_s = prob_X.argmax(1).squeeze()
+        X_s = F.one_hot(sample_s, num_classes=20).float()
+
+        return X_s, None
+
+    def sample(self, data, cond=False, temperature=1.0, stop=0):
+        limit_dist = torch.ones(20) / 20
+        zt = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0])  # [N,20] one hot
+        zt = zt.to(data.x.device)
+        for s_int in reversed(range(stop, self.timesteps)):  # 500
+            # z_t-1 ~p(z_t-1|z_t),
+            s_array = s_int * torch.ones((data.batch[-1] + 1, 1)).type_as(data.x)
+            t_array = s_array + 1
+            zt, final_predicted_X = self.sample_p_zs_given_zt(t_array, s_array, zt, data, temperature,
+                                                              last_step=s_int == stop)
         return zt, final_predicted_X
 
-    def sample_t_r(self, batch_size, device):
-        if self.time_dist[0] == 'uniform':
-            samples = np.random.rand(batch_size, 2).astype(np.float32)
-        elif self.time_dist[0] == 'lognorm':
-            mu, sigma = self.time_dist[-2], self.time_dist[-1]
-            normal_samples = np.random.randn(batch_size, 2).astype(np.float32) * sigma + mu
-            samples = 1 / (1 + np.exp(-normal_samples))  # Apply sigmoid
-        else:
-            raise ValueError(f"Invalid time distribution: {self.time_dist}")
+    def ddim_sample(self, data, cond=False, temperature=1.0, stop=0, step=10, ratio=0):
+        limit_dist = torch.ones(20) / 20
+        zt = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0])  # [N,20] one hot
+        zt = zt.to(data.x.device)
+        for s_int in tqdm(list(reversed(range(stop, self.timesteps, step)))):  # 500
+            # z_t-1 ~p(z_t-1|z_t),
+            s_array = s_int * torch.ones((data.batch[-1] + 1, 1)).type_as(data.x)
+            t_array = s_array + step
+            if ratio != 0:
+                zt, final_predicted_X = self.sample_p_zs_given_zt_MSA(t_array, s_array, zt, data, temperature,
+                                                                      last_step=s_int == stop, cond=cond,
+                                                                      MSA_retrieval_ratio=ratio)
+            else:
+                zt, final_predicted_X = self.sample_p_zs_given_zt(t_array, s_array, zt, data, temperature,
+                                                                  last_step=s_int == stop, cond=cond)
 
-        # Assign t = max, r = min, for each pair
-        t_np = np.maximum(samples[:, 0], samples[:, 1])
-        r_np = np.minimum(samples[:, 0], samples[:, 1])
+        return zt, final_predicted_X
 
-        num_selected = int(self.flow_ratio * batch_size)
-        indices = np.random.permutation(batch_size)[:num_selected]
-        r_np[indices] = t_np[indices]
+    def forward(self, data, logit=False):
 
-        t = torch.tensor(t_np, device=device)
-        r = torch.tensor(r_np, device=device)
-        return t[:, None], r[:, None]
-
-
-    def forward(self, data):
-        t, r = self.sample_t_r(data.batch[-1].item()+1, data.x.device)
-        _t, _r = t[data.batch], r[data.batch]
-        e = torch.randn_like(data.x)
-        x = (1 - _t) * data.x + _t * e
-        noise_data = data.clone()
-        noise_data.x = x
-        x, pos, extra_x, edge_index, edge_attr, ss, batch = noise_data.x, noise_data.pos, noise_data.extra_x, noise_data.edge_index, noise_data.edge_attr, noise_data.ss, noise_data.batch
+        t_float = torch.randint(0, self.timesteps, size=(data.batch[-1] + 1, 1),
+                                device=data.x.device).float() / self.timesteps
+        noise_data = self.apply_noise(data, t_float)
+        pred_X, pred_sasa = self.model(noise_data, t_float)  # have parameter
 
         if self.objective == 'pred_x0':
             target = data.x
         elif self.objective == 'smooth_x0':
-            target = substitute_label(data.x.argmax(dim = 1),temperature=self.label_smooth_tem)
+            target = substitute_label(data.x.argmax(dim=1), temperature=self.label_smooth_tem)
         else:
             raise ValueError(f'unknown objective {self.objective}')
+        ce_loss = self.loss_fn(pred_X, target, reduction='mean')
 
-        def u_fn(x, t, r, pos=None, extra_x=None, edge_index=None, edge_attr=None, ss=None, batch=None):
-            return (x - self.model(x, pos, extra_x, edge_index, edge_attr, ss, batch, t, r)[0]) / torch.clip(t[batch], min=0.05)
+        if exists(pred_sasa):
+            mse_loss = F.mse_loss(pred_sasa, data.sasa)
+            loss = ce_loss + self.config['sasa_loss_coeff'] * mse_loss
+        else:
+            loss = ce_loss
 
-        v = u_fn(x, t, t, pos, extra_x, edge_index, edge_attr, ss, batch)
-        jvp_args = (
-            partial(u_fn, pos=pos, extra_x=extra_x, edge_index=edge_index, edge_attr=edge_attr, ss=ss, batch=batch),
-            (x, t, r),
-            (v, torch.ones_like(t), torch.zeros_like(r))
-        )
-        u, dudt = torch.func.jvp(*jvp_args)
-        V = u + (_t - _r) * dudt.detach()
-        loss = self.loss_fn(V, e - target * self.temperature,reduction='mean')
-        
-        return loss
+        if logit:
+            return loss, pred_X
+        else:
+            if exists(pred_sasa):
+                return loss, ce_loss, self.config['sasa_loss_coeff'] * mse_loss
+            else:
+
+                return loss, ce_loss, None
 
 
-def seq_recovery(data,pred_seq):
+def seq_recovery(data, pred_seq):
     '''
     data.x is nature sequence
 
     '''
     recovery_list = []
-    for i in range(data.ptr.shape[0]-1):
-        nature_seq = data.x[data.ptr[i]:data.ptr[i+1],:].argmax(dim=1)
+    for i in range(data.ptr.shape[0] - 1):
+        nature_seq = data.x[data.ptr[i]:data.ptr[i + 1], :].argmax(dim=1)
         # print('nature_seq', data.x[data.ptr[i]:data.ptr[i+1],:])
-        pred = pred_seq[data.ptr[i]:data.ptr[i+1],:].argmax(dim=1)
+        pred = pred_seq[data.ptr[i]:data.ptr[i + 1], :].argmax(dim=1)
         # print('pred_seq', pred_seq[data.ptr[i]:data.ptr[i+1],:])
-        recovery = ((nature_seq==pred).sum()/nature_seq.shape[0])
+        recovery = ((nature_seq == pred).sum() / nature_seq.shape[0])
         recovery_list.append(recovery.item())
 
     return recovery_list
@@ -547,24 +679,28 @@ def seq_recovery(data,pred_seq):
 
 class Trainer(object):
     def __init__(
-        self,
-        config,
-        diffusion_model,
-        train_dataset,
-        val_dataset,
-        test_dataset,
-        *,
-        train_batch_size = 512,
-        gradient_accumulate_every = 1,
-        train_lr = 1e-4,
-        weight_decay = 1e-2,
-        train_num_steps = 100000,
-        ema_update_every = 10,
-        ema_decay = 0.995,#0.999
-        adam_betas = (0.9, 0.99),
-        save_and_sample_every = 10000,
-        num_samples = 25,
-        results_folder = './result',
+            self,
+            config,
+            diffusion_model,
+            train_dataset,
+            val_dataset,
+            test_dataset,
+            *,
+            train_batch_size=512,
+            gradient_accumulate_every=1,
+            train_lr=1e-4,
+            weight_decay=1e-2,
+            train_num_steps=100000,
+            ema_update_every=10,
+            ema_decay=0.995,  # 0.999
+            adam_betas=(0.9, 0.99),
+            save_and_sample_every=10000,
+            num_samples=25,
+            results_folder='./result',
+            amp=False,
+            fp16=False,
+            split_batches=True,
+            convert_image_to=None
     ):
         super().__init__()
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -573,7 +709,6 @@ class Trainer(object):
             # self.model = diffusion_model.to(device)
         else:
             self.model = diffusion_model.to(device)
-            
 
         # self.model = diffusion_model
         self.config = config
@@ -588,36 +723,39 @@ class Trainer(object):
         # dataset and dataloader
 
         self.ds = train_dataset
-        dl = DataListLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = 12)
+        dl = DataListLoader(self.ds, batch_size=train_batch_size, shuffle=True, pin_memory=True, num_workers=12)
 
         self.dl = cycle(dl)
 
-        self.val_loader = DataLoader(val_dataset,batch_size=train_batch_size,shuffle=False, pin_memory = True, num_workers = 12)
-        self.test_loader = DataLoader(test_dataset,batch_size=train_batch_size,shuffle=False, pin_memory = True, num_workers = 12)
+        self.val_loader = DataLoader(val_dataset, batch_size=train_batch_size, shuffle=False, pin_memory=True,
+                                     num_workers=12)
+        self.test_loader = DataLoader(test_dataset, batch_size=train_batch_size, shuffle=False, pin_memory=True,
+                                      num_workers=12)
         # optimizer
 
-        self.opt = AdamW(diffusion_model.parameters(), lr = train_lr, betas = adam_betas,weight_decay= weight_decay)
+        self.opt = AdamW(diffusion_model.parameters(), lr=train_lr, betas=adam_betas, weight_decay=weight_decay)
 
         # for logging results in a folder periodically
 
         # if self.accelerator.is_main_process:
-        self.ema = EMA(diffusion_model, beta = ema_decay, update_every = ema_update_every)
+        self.ema = EMA(diffusion_model, beta=ema_decay, update_every=ema_update_every)
 
         self.results_folder = Path(results_folder)
-        self.results_folder.mkdir(exist_ok = True)
-        Path(results_folder+'/weight/').mkdir(exist_ok = True)
-        Path(results_folder+'/figure/').mkdir(exist_ok = True)
+        self.results_folder.mkdir(exist_ok=True)
+        Path(results_folder + '/weight/').mkdir(exist_ok=True)
+        Path(results_folder + '/figure/').mkdir(exist_ok=True)
         # step counter state
 
         self.step = 0
 
         # prepare model, dataloader, optimizer with accelerator
-        self.save_file_name = self.config['Date']+f"_lr={self.config['lr']}_wd={self.config['wd']}_dp={self.config['drop_out']}_hidden={self.config['hidden_dim']}_noisy_type={self.config['noise_type']}_embed_ss={self.config['embed_ss']}"
-    
+        self.save_file_name = self.config[
+                                  'Date'] + f"_lr={self.config['lr']}_wd={self.config['wd']}_dp={self.config['drop_out']}_hidden={self.config['hidden_dim']}_noisy_type={self.config['noise_type']}_embed_ss={self.config['embed_ss']}"
+
     def save(self, milestone):
         # if not self.accelerator.is_local_main_process:
         #     return
-        if len(self.model.device_ids)>1:
+        if len(self.model.device_ids) > 1:
             state_dict = self.model.module.state_dict()
         else:
             state_dict = self.model.state_dict()
@@ -631,9 +769,9 @@ class Trainer(object):
             # 'version': __version__
         }
 
-        torch.save(data, os.path.join(str(self.results_folder),'weight', self.save_file_name+f'_{milestone}.pt'))
-    
-    def load(self, milestone,filename =False):
+        torch.save(data, os.path.join(str(self.results_folder), 'weight', self.save_file_name + f'_{milestone}.pt'))
+
+    def load(self, milestone, filename=False):
         # accelerator = self.accelerator
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         print(f"loading from {self.results_folder}")
@@ -641,7 +779,9 @@ class Trainer(object):
             # data = torch.load(str(self.results_folder)+'/'+filename, map_location=device)
             data = torch.load(filename, map_location=device)
         else:
-            data = torch.load(str(self.results_folder / self.config['Date']+f"model_lr={self.config['lr']}_dp={self.config['drop_out']}_timestep={self.config['timesteps']}_hidden={self.config['hidden_dim']}_{milestone}.pt"), map_location=device)
+            data = torch.load(str(self.results_folder / self.config[
+                'Date'] + f"model_lr={self.config['lr']}_dp={self.config['drop_out']}_timestep={self.config['timesteps']}_hidden={self.config['hidden_dim']}_{milestone}.pt"),
+                              map_location=device)
 
         self.model.load_state_dict(data['model'])
 
@@ -658,31 +798,36 @@ class Trainer(object):
     def train(self):
         lr_schedule = True
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        train_loss,ce_loss_list,mse_loss_list,recovery_list,perplexity,val_loss_list,corr_record= [],[],[],[],[],[],[]
-        total_loss,total_ce_loss,total_mse_loss = 5,5,5
-        corr_list = [ [] for i in range(28)]
+        train_loss, ce_loss_list, mse_loss_list, recovery_list, perplexity, val_loss_list, corr_record = [], [], [], [], [], [], []
+        total_loss, total_ce_loss, total_mse_loss = 5, 5, 5
+        corr_list = [[] for i in range(28)]
         val_loss = torch.tensor([5.0])
-        with tqdm(initial = self.step, total = self.train_num_steps) as pbar:
+        with tqdm(initial=self.step, total=self.train_num_steps) as pbar:
             while self.step < self.train_num_steps:
                 for _ in range(self.gradient_accumulate_every):
                     # data = next(self.dl).to(device)
                     data = next(self.dl)
-                    loss = self.model(data)
+                    loss, ce_loss, mse_loss = self.model(data)
                     loss = loss / self.gradient_accumulate_every
+                    ce_loss = ce_loss / self.gradient_accumulate_every
                     total_loss += loss.mean().item()
+                    total_ce_loss += ce_loss.mean().item()
+                    if self.config['pred_sasa']:
+                        total_mse_loss += mse_loss.mean().item()
+
                     loss.mean().backward()
 
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config['clip_grad_norm'])
-                all_iter = len(self.ds)//self.batch_size
-                num_iter = self.step % all_iter +1
-                pbar.set_description(f'loss: {total_loss/num_iter:.4f}')
+                all_iter = len(self.ds) // self.batch_size
+                num_iter = self.step % all_iter + 1
+                pbar.set_description(f'loss: {total_loss / num_iter:.4f}')
 
-                if self.step%(len(self.ds)//self.batch_size) == 0 and self.step != 0:
-                    
-                    train_loss.append(total_loss/all_iter)
-                    ce_loss_list.append(total_ce_loss/all_iter)
+                if self.step % (len(self.ds) // self.batch_size) == 0 and self.step != 0:
+
+                    train_loss.append(total_loss / all_iter)
+                    ce_loss_list.append(total_ce_loss / all_iter)
                     if self.config['pred_sasa']:
-                        mse_loss_list.append(total_mse_loss/all_iter)
+                        mse_loss_list.append(total_mse_loss / all_iter)
                     val_loss_list.append(val_loss.item())
                     total_loss = 0
                     total_ce_loss = 0
@@ -694,23 +839,22 @@ class Trainer(object):
                 self.ema.to(device)
                 self.ema.update()
 
-                if self.step != 0 and self.step % (self.save_and_sample_every*(len(self.ds)//self.batch_size)) == 0:
+                if self.step != 0 and self.step % (self.save_and_sample_every * (len(self.ds) // self.batch_size)) == 0:
                     self.ema.ema_model.eval()
 
                     with torch.no_grad():
                         sub_list = []
                         for data in self.val_loader:
                             data = data.to(device)
-                            
-                            val_loss = self.ema.ema_model(data)
 
-                            zt,sample_graph = self.ema.ema_model.sample(data) #zt is the output of Neural Netowrk and sample graph is a sample of it
-                            recovery = np.mean(seq_recovery(data,sample_graph))
+                            val_loss, ce_loss, mse_loss = self.ema.ema_model(data)
+
+                            zt, sample_graph = self.ema.ema_model.sample(data, self.config['sample_temperature'], stop=0)  # zt is the output of Neural Netowrk and sample graph is a sample of it
+                            recovery = np.mean(seq_recovery(data, sample_graph))
                             sub_list.append(recovery)
-                            
-                            ll_fullseq = F.cross_entropy(zt,data.x, reduction='mean').item()
+
+                            ll_fullseq = F.cross_entropy(zt, data.x, reduction='mean').item()
                             # print(f'perplexity : {np.exp(ll_fullseq):.2f}')
-                            
 
                         # weigth_corr,corr_list,DSM_list = compute_single_site_corr_score_all(self.ema.ema_model,CATH_test_inmem,corr_list,self.config['pred_sasa'])
                         # corr_record.append(weigth_corr)
@@ -719,9 +863,9 @@ class Trainer(object):
 
                     recovery_list.append(np.mean(sub_list))
                     print(f'recovery rate is {np.mean(sub_list)}')
-                    perplexity.append(0.1*np.exp(ll_fullseq)) 
+                    perplexity.append(0.1 * np.exp(ll_fullseq))
 
-                    fig = plt.figure(figsize=(8, 6))  
+                    fig = plt.figure(figsize=(8, 6))
                     gs = GridSpec(3, 2, figure=fig)
 
                     ax1 = fig.add_subplot(gs[0, 0])
@@ -729,7 +873,7 @@ class Trainer(object):
                     ax1.plot(val_loss_list, label='val_loss')
                     # ax1.plot(ce_loss_list,label = 'ce_loss')
                     if self.config['pred_sasa']:
-                        ax1.plot(mse_loss_list,label = 'mse_loss')
+                        ax1.plot(mse_loss_list, label='mse_loss')
                     ax1.set_ylim((0, 4))
                     ax1.legend(loc="upper right", fancybox=True)
 
@@ -737,9 +881,9 @@ class Trainer(object):
                     ax2.plot(recovery_list, label='recovery')
                     ax2.plot(perplexity, label='perplexity * 0.1')
                     ax2.legend(loc="upper right", fancybox=True)
-                    ax2.set_title(f'best_recovery={max(recovery_list):.4f} at {recovery_list.index(max(recovery_list))}')
-                    ax2.set_ylim((0, 0.8))
-
+                    ax2.set_title(
+                        f'best_recovery={max(recovery_list):.4f} at {recovery_list.index(max(recovery_list))}')
+                    ax2.set_ylim((0, 1.0))
 
                     # ax4 = fig.add_subplot(gs[2, 0])
                     # ax4.plot(corr_record)
@@ -749,22 +893,23 @@ class Trainer(object):
                     # for corr, protein_name in zip(corr_list, DSM_list):
                     #     ax3.plot(corr, label=protein_name)
 
-                    # ax3.legend(loc='upper left', bbox_to_anchor=(1, 1), fancybox=True, prop={'size': 8})  
-                    
+                    # ax3.legend(loc='upper left', bbox_to_anchor=(1, 1), fancybox=True, prop={'size': 8})
 
                     plt.subplots_adjust(wspace=0.5, hspace=0.5)
-                    plt.savefig(os.path.join(str(self.results_folder), 'figure', self.save_file_name + f'.png'), dpi=200)
+                    plt.savefig(os.path.join(str(self.results_folder), 'figure', self.save_file_name + f'.png'),
+                                dpi=200)
                     plt.close()
-
 
                     # utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
                     self.save(milestone)
 
                 pbar.update(1)
-        train_detail = {'train_loss':train_loss,'val_loss':val_loss_list,'recovery':recovery_list,'perplexity':perplexity}
-        pd.DataFrame(train_detail).to_csv(os.path.join(str(self.results_folder), self.save_file_name + f'.csv'), index=False)
+        train_detail = {'train_loss': train_loss, 'val_loss': val_loss_list, 'recovery': recovery_list,
+                        'perplexity': perplexity}
+        pd.DataFrame(train_detail).to_csv(os.path.join(str(self.results_folder), self.save_file_name + f'.csv'),
+                                          index=False)
         print('training complete')
-    
+
     def test(self, ratio=0):
         """
         !! please delete all files in /test_rr_tmp if test set is changed.
@@ -779,8 +924,10 @@ class Trainer(object):
             for data in self.test_loader:
                 print('data batch:', data.batch)
                 data = data.to(device)
-                
-                zt,sample_graph = self.ema.ema_model.sample(data) #zt is the output of Neural Netowrk and sample graph is a sample of it
+
+                val_loss, ce_loss, mse_loss = self.ema.ema_model(data)
+
+                zt, sample_graph = self.ema.ema_model.sample(data, self.config['sample_temperature'], stop=0)  # zt is the output of Neural Netowrk and sample graph is a sample of it
                 if type(sample_graph) is list:
                     # print('sample_graph: ', sample_graph)
                     for i, sample_graph_at_given_ratio in enumerate(sample_graph):
@@ -789,11 +936,10 @@ class Trainer(object):
                         print('recovery', recovery)
                         ratio_sub_list[i].append(recovery)
                 else:
-                    recovery = np.mean(seq_recovery(data,sample_graph))
+                    recovery = np.mean(seq_recovery(data, sample_graph))
                     sub_list.append(recovery)
-                
+
                 # print(f'perplexity : {np.exp(ll_fullseq):.2f}')
-                
 
             # weigth_corr,corr_list,DSM_list = compute_single_site_corr_score_all(self.ema.ema_model,CATH_test_inmem,corr_list,self.config['pred_sasa'])
             # corr_record.append(weigth_corr)
@@ -812,79 +958,79 @@ class Trainer(object):
             plt.savefig("recovery_rate.png")
 
 
-if __name__ == "__main__" :
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--Date', type = str,default='Debug',
+    parser.add_argument('--Date', type=str, default='Debug',
                         help='Date of experiment')
-                    
-    parser.add_argument('--data_split', action='store_true', default=False) 
+
+    parser.add_argument('--data_split', action='store_true', default=False)
     parser.add_argument('--cath_dir', type=str, default="dataset/cath40_k10_imem_add2ndstrc/process/")
-     
-    parser.add_argument('--objective', type = str,default='pred_x0',
-                        help='the target of training objective, objective must be either pred_x0 or smooth_x0')  
-    
-    parser.add_argument('--lr', type = float,default=1e-4,
+
+    parser.add_argument('--objective', type=str, default='pred_x0',
+                        help='the target of training objective, objective must be either pred_x0 or smooth_x0')
+
+    parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate')
-    
-    parser.add_argument('--smooth_temperature', type = float,default=1.0,
-                        help='the temperature used for smoothing label')    
-    
-    parser.add_argument('--wd', type = float,default=1e-2,
+
+    parser.add_argument('--smooth_temperature', type=float, default=1.0,
+                        help='the temperature used for smoothing label')
+
+    parser.add_argument('--wd', type=float, default=1e-2,
                         help='weight decay')
-    
-    parser.add_argument('--drop_out', type = float,default=0.0,
+
+    parser.add_argument('--drop_out', type=float, default=0.0,
                         help='Whether to run with best params for cora. Overrides the choice of dataset')
 
-    parser.add_argument('--timesteps',  type = int,default=700,
+    parser.add_argument('--timesteps', type=int, default=700,
                         help='Whether to run with best params for cora. Overrides the choice of dataset')
 
-    parser.add_argument('--hidden_dim',  type = int,default=16,
+    parser.add_argument('--hidden_dim', type=int, default=16,
                         help='Whether to run with best params for cora. Overrides the choice of dataset')
 
-    parser.add_argument('--device_id', type = int,default=0,
+    parser.add_argument('--device_id', type=int, default=0,
                         help='cuda device')
-    
-    parser.add_argument('--sasa_loss_coeff',  type = float,default=1.0,
+
+    parser.add_argument('--sasa_loss_coeff', type=float, default=1.0,
                         help='the coeff of mse of sasa prediction')
 
-    parser.add_argument('--sample_temperature', type = float,default=1.0,
+    parser.add_argument('--sample_temperature', type=float, default=1.0,
                         help='the temperature of predictive probability when t = 0')
-    
-    parser.add_argument('--depth', type = int,default=1,
+
+    parser.add_argument('--depth', type=int, default=1,
                         help='number of GNN layers')
-    
-    parser.add_argument('--noise_type', type = str,default='uniform',
+
+    parser.add_argument('--noise_type', type=str, default='uniform',
                         help='what type of noise apply in diffusion process, uniform or blosum')
-    
-    parser.add_argument('--embedding_dim', type = int,default=16,
-                        help='the dim of feature embedding')   
-    
-    parser.add_argument('--clip_grad_norm',  type = float,default=1.0,
+
+    parser.add_argument('--embedding_dim', type=int, default=16,
+                        help='the dim of feature embedding')
+
+    parser.add_argument('--clip_grad_norm', type=float, default=1.0,
                         help='clip_grad_norm')
 
-    parser.add_argument('--sampling_method',  type = str,default='ddpm',
-                        help='clip_grad_norm')    
+    parser.add_argument('--sampling_method', type=str, default='ddpm',
+                        help='clip_grad_norm')
 
-    parser.add_argument('--pred_sasa', action='store_true',#default = False,
-                        help='whether predict sasa for better latent representation for mutation') 
+    parser.add_argument('--pred_sasa', action='store_true',  # default = False,
+                        help='whether predict sasa for better latent representation for mutation')
 
-    parser.add_argument('--embedding', action='store_true',#default = True,
-                        help='whether residual embedding the feature') 
-    
-    parser.add_argument('--norm_feat', action='store_true',#default = True,
-                        help='whether normalization node feature in egnn')    
-    
-    parser.add_argument('--embed_ss', action='store_true',#default = True,
+    parser.add_argument('--embedding', action='store_true',  # default = True,
+                        help='whether residual embedding the feature')
+
+    parser.add_argument('--norm_feat', action='store_true',  # default = True,
+                        help='whether normalization node feature in egnn')
+
+    parser.add_argument('--embed_ss', action='store_true',  # default = True,
                         help='whether embedding secondary structure')
-    
-    parser.add_argument('--batch_size', type = int,default=32)
-    
+
+    parser.add_argument('--batch_size', type=int, default=32)
+
     parser.add_argument('--target_protein_dir', type=str, default=None)
-    
-    parser.add_argument('--output_dir', type = str,default='./protein_DIFF/results',
+
+    parser.add_argument('--output_dir', type=str, default='./protein_DIFF/results',
                         help='output dir')
-    
+
     args = parser.parse_args()
     config = vars(args)
 
@@ -905,14 +1051,14 @@ if __name__ == "__main__" :
 
     basedir = args.cath_dir
     if args.data_split:
-        data_split  = torch.load('dataset/cath43_train_test_split.pt')
-        train_idx, val_idx, test_idx = data_split['train'],data_split['validation'],data_split['test']#single_chain_id,L100.test
+        data_split = torch.load('dataset/cath43_train_test_split.pt')
+        train_idx, val_idx, test_idx = data_split['train'], data_split['validation'], data_split['test']  # single_chain_id,L100.test
     else:
         cath_idx = os.listdir(basedir)
         random.Random(4).shuffle(cath_idx)
         # split train, val, test
         train_idx, val_idx, test_idx = cath_idx[1000:], cath_idx[:500], cath_idx[500:100]
-            
+
     train_dataset = Cath(train_idx, basedir)
     val_dataset = Cath(val_idx, basedir)
     test_dataset = Cath(test_idx, basedir)
@@ -933,33 +1079,39 @@ if __name__ == "__main__" :
         train_dataset = torch.utils.data.ConcatDataset([train_dataset, target_protein_train_dataset])
         val_dataset = target_protein_test_dataset
         test_dataset = target_protein_test_dataset
-        
-    input_feat_dim = train_dataset[0].x.shape[1]+train_dataset[0].extra_x.shape[1]
+
+    input_feat_dim = train_dataset[0].x.shape[1] + train_dataset[0].extra_x.shape[1]
     edge_attr_dim = train_dataset[0].edge_attr.shape[1]
 
     if config['pred_sasa']:
-        model = EGNN_NET(input_feat_dim=input_feat_dim,hidden_channels=config['hidden_dim'],edge_attr_dim=edge_attr_dim,dropout=config['drop_out'],n_layers=config['depth'],update_edge = True,embedding=config['embedding'],embedding_dim=config['embedding_dim'],norm_feat=config['norm_feat'],output_dim=21,embedding_ss=config['embed_ss'])
+        model = EGNN_NET(input_feat_dim=input_feat_dim, hidden_channels=config['hidden_dim'],
+                         edge_attr_dim=edge_attr_dim, dropout=config['drop_out'], n_layers=config['depth'],
+                         update_edge=True, embedding=config['embedding'], embedding_dim=config['embedding_dim'],
+                         norm_feat=config['norm_feat'], output_dim=21, embedding_ss=config['embed_ss'])
     else:
-        model = EGNN_NET(input_feat_dim=input_feat_dim,hidden_channels=config['hidden_dim'],edge_attr_dim=edge_attr_dim,dropout=config['drop_out'],n_layers=config['depth'],update_edge = True,embedding=config['embedding'],embedding_dim=config['embedding_dim'],norm_feat=config['norm_feat'],embedding_ss=config['embed_ss'])#GVP,Protein_MPNN,
-    
-    # model = DataParallel(model)
-    
-    diffusion = Sparse_DIGRESS(model=model,config=config,sampling_timesteps=config['timesteps'],objective=config['objective'],label_smooth_tem=config['smooth_temperature'], temperature=config['sample_temperature'])
+        model = EGNN_NET(input_feat_dim=input_feat_dim, hidden_channels=config['hidden_dim'],
+                         edge_attr_dim=edge_attr_dim, dropout=config['drop_out'], n_layers=config['depth'],
+                         update_edge=True, embedding=config['embedding'], embedding_dim=config['embedding_dim'],
+                         norm_feat=config['norm_feat'], embedding_ss=config['embed_ss'])  # GVP,Protein_MPNN,
 
-    trainer  = Trainer(config,
-                       diffusion,
-                       train_dataset,
-                       val_dataset,
-                       test_dataset,
-                       train_batch_size = args.batch_size,
-                       gradient_accumulate_every=1,
-                       save_and_sample_every=20,
-                       train_num_steps=90000,
-                       train_lr=config['lr'],
-                       weight_decay = config['wd'],
-                       results_folder=config['output_dir'])
+    # model = DataParallel(model)
+
+    diffusion = Sparse_DIGRESS(model=model, config=config, timesteps=config['timesteps'], objective=config['objective'],
+                               label_smooth_tem=config['smooth_temperature'])
+
+    trainer = Trainer(config,
+                      diffusion,
+                      train_dataset,
+                      val_dataset,
+                      test_dataset,
+                      train_batch_size=args.batch_size,
+                      gradient_accumulate_every=1,
+                      save_and_sample_every=20,
+                      train_num_steps=90000,
+                      train_lr=config['lr'],
+                      weight_decay=config['wd'],
+                      results_folder=config['output_dir'])
     trainer.train()
-    
 
 # python3 protein_DIFF/diffusion_sequence_protein.py --lr 5e-4 --timesteps 500 --hidden_dim 128 --wd 1e-5 --clip_grad_norm 1e3 --device_id 0 --depth 6 --drop_out 0.1 --norm_feat --embedding_dim 128 --Date 'May14_Debug' --objective 'pred_x0' --smooth_temperature 0.9
 
