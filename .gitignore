@@ -218,7 +218,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-result/
+result/*
+!result/origin/
+!result/origin/**
+!result/origin/flow_50_af2_no_template
+!result/origin/flow_50_af2_no_template/**
 share/
 dataset/zip
 
