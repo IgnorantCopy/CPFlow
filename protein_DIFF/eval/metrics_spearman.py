@@ -39,11 +39,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
 from protein_DIFF.run_pt import (
-    amino_acids_type, Trainer, EGNN_NET, Sparse_DIGRESS,
-    prepare_mutation_graph,
+    amino_acids_type, EGNN_NET, Sparse_DIGRESS,
 )
 from protein_DIFF.dataset.large_dataset import Cath
-from protein_DIFF.dataset.utils import NormalizeProtein
+from protein_DIFF.dataset.utils import NormalizeProtein, dataset_argument
 from torch_geometric.data import Batch, Data
 import torch.nn.functional as F
 
@@ -87,16 +86,17 @@ def load_model(checkpoint_path: str, device: str = "cuda:0"):
         embedding=config.get("embedding", False),
         embedding_dim=config.get("embedding_dim", 64),
         norm_feat=config.get("norm_feat", False),
-        output_dim=20,
+        output_dim=config.get("output_dim", 21),
         embedding_ss=config.get("embed_ss", False),
     )
 
     diffusion = Sparse_DIGRESS(
         model=model,
         config=config,
-        timesteps=config["timesteps"],
+        sampling_timesteps=config["timesteps"],
         objective=config["objective"],
         label_smooth_tem=config.get("smooth_temperature", 1.0),
+        temperature=config.get("sample_temperature", 1.0),
     )
 
     diffusion.load_state_dict(checkpoint["model"], strict=False)
@@ -112,6 +112,7 @@ def evaluate_mutation_effects(
     device: str = "cuda:0",
     steps: list = None,
     n_realizations: int = 10,
+    pred_sasa: bool = False,
 ) -> dict:
     """Evaluate mutation effect prediction across ProteinGym proteins.
 
@@ -133,7 +134,7 @@ def evaluate_mutation_effects(
 
     # Prepare dataset
     from protein_DIFF.dataset.pdbbind_eval import PdbbindEvaluate
-    from protein_DIFF.dataset.utils import dataset_argument
+    from protein_DIFF.dataset.utils import NormalizeProtein, dataset_argument
 
     args_ds = dataset_argument(n=7)  # evaluation config
     normalize = NormalizeProtein(filename=args_ds["normal_file"])
@@ -143,7 +144,6 @@ def evaluate_mutation_effects(
                        and d != ".DS_Store"])
 
     results_all = []
-    best_corrs = {}
 
     for protein_name in dsm_list:
         protein_dir = os.path.join(eval_dir, protein_name)
@@ -179,7 +179,7 @@ def evaluate_mutation_effects(
             continue
 
         # Build graph
-        from protein_DIFF.run_pt import pdb2graph, get_struc2ndRes
+        from protein_DIFF.run_pt import pdb2graph
 
         # We need a Cath dataset for graph building
         # Create minimal dataset with just the needed methods
@@ -199,7 +199,7 @@ def evaluate_mutation_effects(
 
         try:
             graph = pdb2graph(ds, pdb_path, ss_path)
-            graph = normalize(graph)
+            # pdb2graph already normalizes internally; skip second pass
         except Exception as e:
             print(f"  [FAIL] {protein_name}: graph building error: {e}")
             continue
@@ -207,10 +207,17 @@ def evaluate_mutation_effects(
         # Prepare data for model
         data = Batch.from_data_list([graph])
         data_input = Data.clone(data)
-        data_input.extra_x = torch.cat(
-            [data.x[:, 20].unsqueeze(dim=1), data.x[:, 22:], data.mu_r_norm],
-            dim=-1,
-        )
+        # Match run_pt.compute_single_site_corr_score_all: the extra_x layout
+        # depends on whether the checkpoint was trained with pred_sasa.
+        if pred_sasa:
+            data_input.extra_x = torch.cat(
+                [data.x[:, 22:], data.mu_r_norm], dim=-1,
+            )
+        else:
+            data_input.extra_x = torch.cat(
+                [data.x[:, 20].unsqueeze(dim=1), data.x[:, 22:], data.mu_r_norm],
+                dim=-1,
+            )
         data_input.x = data.x[:, :20].to(torch.float32)
         data_input = data_input.to(device)
 
@@ -234,11 +241,17 @@ def evaluate_mutation_effects(
             seq_len = data_input.x.shape[0]
 
             for wt_aa, pos, mt_aa, dms_score in mutations:
-                if pos < 1 or pos > seq_len:
+                # Match run_pt: skip out-of-range and the last residue
+                # (run_pt explicitly drops the last position). Also skip
+                # mutations to non-standard residues (X/*) that
+                # amino_acids_type cannot index — otherwise .index() raises
+                # and crashes the whole evaluation.
+                if pos < 1 or pos >= seq_len:
+                    continue
+                if mt_aa not in amino_acids_type:
                     continue
                 target = data_input.x[:, :20].argmax(dim=1).clone()
-                mt_idx = amino_acids_type.index(mt_aa)
-                target[pos - 1] = mt_idx
+                target[pos - 1] = amino_acids_type.index(mt_aa)
                 ce = F.cross_entropy(avg_pred, target, reduction="mean").item()
                 pred_scores.append(-ce)  # higher = more likely
                 true_scores.append(dms_score)
@@ -254,14 +267,6 @@ def evaluate_mutation_effects(
                 })
                 print(f"  {protein_name} step={stop_step}: "
                       f"Spearman r={corr:.4f} (n={len(pred_scores)})")
-
-                if protein_name not in best_corrs:
-                    best_corrs[protein_name] = {}
-                if stop_step not in best_corrs[protein_name]:
-                    best_corrs[protein_name][stop_step] = corr
-                best_corrs[protein_name][stop_step] = max(
-                    best_corrs[protein_name][stop_step], corr
-                )
 
     # Summary
     if not results_all:
@@ -281,7 +286,7 @@ def evaluate_mutation_effects(
     for protein_name, n_mut in protein_weights.items():
         sub = df[df["protein"] == protein_name]
         if len(sub) > 0:
-            best_r = sub["spearman_r"].max()
+            best_r = sub["spearman_r"].abs().max()
             weighted_corr += (n_mut / total_mutations) * best_r
 
     report = {
@@ -351,6 +356,7 @@ if __name__ == "__main__":
 
     report = evaluate_mutation_effects(
         diffusion, args.eval_dir, args.device, steps, args.realizations,
+        pred_sasa=config.get("pred_sasa", False),
     )
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

@@ -264,27 +264,47 @@ def three_step_filter(pdb_dir: str, wt_pdb: str,
 
     Step 1: reject sequences with overall pLDDT < mean − 1σ
     Step 2: reject sequences with σ(ΔpLDDT) > mean + 1σ
-    Step 3: reject sequences with count(|ΔpLDDT| > 10) > mean + 1σ
+    Step 3: reject sequences with count(ΔpLDDT > 10) > ceil(mean + 1σ)
+           (one-sided: only count when AP pLDDT exceeds WT by > 10)
     """
+    def _finish(report: dict, announce: bool = False) -> dict:
+        if output_path:
+            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            with open(output_path, "w") as f:
+                json.dump(report, f, indent=2)
+            if announce:
+                print(f"[pLDDT filter] Report saved → {output_path}")
+        return report
+
     wt_plddt = extract_per_residue_plddt(wt_pdb)
+    if len(wt_plddt) == 0:
+        return _finish({
+            "status": "wt_pdb_no_ca",
+            "error": f"No CA atoms in WT PDB: {wt_pdb}",
+        })
     wt_len = len(wt_plddt)
 
     pdb_files = sorted([f for f in os.listdir(pdb_dir)
                         if f.endswith(".pdb") and f != os.path.basename(wt_pdb)])
 
     if not pdb_files:
-        return {"status": "no_pdb_files", "pdb_dir": pdb_dir}
+        return _finish({"status": "no_pdb_files", "pdb_dir": pdb_dir})
 
     all_data = []
     for fname in pdb_files:
         fpath = os.path.join(pdb_dir, fname)
         try:
             arr = extract_per_residue_plddt(fpath)
+            if len(arr) == 0:
+                raise ValueError(f"No CA atoms found in {fname}")
             overall = float(arr.mean())
             min_len = min(len(arr), wt_len)
             delta = arr[:min_len] - wt_plddt[:min_len]
             sigma_delta = float(np.std(delta))
-            large_diffs = int(np.sum(np.abs(delta) > 10))
+            # Paper: count(ΔpLDDT > 10) where Δ = pLDDT_AP − pLDDT_WT.
+            # One-sided: only count positions where AP pLDDT exceeds WT by > 10.
+            # (If AP pLDDT < WT − 10 that's a different issue, not counted here.)
+            large_diffs = int(np.sum(delta > 10))
             all_data.append({
                 "file": fname, "length": len(arr),
                 "overall_plddt": round(overall, 2),
@@ -299,38 +319,59 @@ def three_step_filter(pdb_dir: str, wt_pdb: str,
 
     n_total = len(all_data)
 
-    overalls = np.array([d["overall_plddt"] for d in all_data])
-    sigmas = np.array([d["sigma_delta"] for d in all_data])
-    counts = np.array([d["large_diffs_count"] for d in all_data])
+    # ── Compute thresholds (exclude failed PDBs per M3) ──
+    valid = [d for d in all_data if "error" not in d]
+    n_valid = len(valid)
+    n_failed = n_total - n_valid
+
+    if n_valid == 0:
+        return _finish({
+            "status": "all_pdb_parse_failed",
+            "num_total": n_total,
+            "num_valid": 0,
+            "num_failed": n_failed,
+            "per_structure": all_data,
+        })
+
+    overalls = np.array([d["overall_plddt"] for d in valid])
+    sigmas = np.array([d["sigma_delta"] for d in valid])
+    counts = np.array([d["large_diffs_count"] for d in valid])
 
     t_overall = float(np.mean(overalls) - np.std(overalls))
     t_sigma = float(np.mean(sigmas) + np.std(sigmas))
-    t_count = float(np.mean(counts) + np.std(counts))
+    # Paper: "more than 93 AA positions" are excluded → ≤ ceil(μ+σ) passes.
+    # Use integer ceiling for both report and filter to be consistent (M2).
+    t_count_int = int(np.ceil(np.mean(counts) + np.std(counts)))
 
     pass_step1 = [d for d in all_data if d["overall_plddt"] >= t_overall]
     pass_step2 = [d for d in pass_step1 if d["sigma_delta"] <= t_sigma]
-    pass_step3 = [d for d in pass_step2 if d["large_diffs_count"] <= t_count]
+    pass_step3 = [d for d in pass_step2 if d["large_diffs_count"] <= t_count_int]
 
     report = {
         "engine_note": "Works for both ESMFold and AlphaFold2 PDB output.",
         "num_total": n_total,
+        "num_valid": n_valid,
+        "num_failed": n_failed,
         "thresholds": {
             "overall_plddt_min": round(t_overall, 2),
             "sigma_delta_max": round(t_sigma, 4),
-            "large_diffs_max": int(np.ceil(t_count)),
+            "large_diffs_max": t_count_int,
         },
         "population_stats": {
             "overall_plddt": {
                 "mean": round(float(np.mean(overalls)), 2),
                 "std": round(float(np.std(overalls)), 2),
+                "computed_on": n_valid,
             },
             "sigma_delta": {
                 "mean": round(float(np.mean(sigmas)), 4),
                 "std": round(float(np.std(sigmas)), 4),
+                "computed_on": n_valid,
             },
             "large_diffs_count": {
                 "mean": round(float(np.mean(counts)), 2),
                 "std": round(float(np.std(counts)), 2),
+                "computed_on": n_valid,
             },
         },
         "filter_results": {
@@ -354,13 +395,7 @@ def three_step_filter(pdb_dir: str, wt_pdb: str,
                                if d not in pass_step3],
     }
 
-    if output_path:
-        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(report, f, indent=2)
-        print(f"[pLDDT filter] Report saved → {output_path}")
-
-    return report
+    return _finish(report, announce=True)
 
 
 def print_filter_summary(report: dict):
@@ -376,7 +411,7 @@ def print_filter_summary(report: dict):
     print(f"\n  Thresholds (mean ± 1σ):")
     print(f"    Step 1 - overall pLDDT ≥ {t.get('overall_plddt_min', 'N/A')}")
     print(f"    Step 2 - σ(ΔpLDDT) ≤ {t.get('sigma_delta_max', 'N/A')}")
-    print(f"    Step 3 - count(|ΔpLDDT|>10) ≤ {t.get('large_diffs_max', 'N/A')}")
+    print(f"    Step 3 - count(ΔpLDDT > 10) ≤ {t.get('large_diffs_max', 'N/A')}")
 
     if pop:
         o = pop.get("overall_plddt", {})
@@ -437,6 +472,8 @@ if __name__ == "__main__":
             sys.exit(1)
         report = three_step_filter(args.pdb_dir, args.wt_pdb, args.output)
         print_filter_summary(report)
+        if report.get("status") in {"wt_pdb_no_ca", "no_pdb_files", "all_pdb_parse_failed"}:
+            sys.exit(1)
 
     else:
         parser.print_help()

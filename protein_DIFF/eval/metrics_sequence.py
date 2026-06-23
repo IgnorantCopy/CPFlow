@@ -94,9 +94,10 @@ def seq_to_onehot(seq: str, max_len: int = None) -> np.ndarray:
 
 def tsne_embedding(seqs: dict, wt_seq: str = None,
                    perplexity: float = 5.0, random_state: int = 42) -> dict:
-    """Compute t-SNE embedding of sequences (paper Fig. 5e).
+    """Compute t-SNE embedding of generated sequences only.
 
-    Returns 2D coordinates for visualization.
+    NOT a reproduction of paper Fig. 5e (which includes natural pAgo background).
+    Use for internal visualization of generated sequence diversity.
     """
     try:
         from sklearn.manifold import TSNE
@@ -104,19 +105,27 @@ def tsne_embedding(seqs: dict, wt_seq: str = None,
         raise ImportError("scikit-learn required: pip install scikit-learn")
 
     ids = sorted(seqs.keys(), key=lambda x: int(x) if x.isdigit() else x)
+    if len(ids) < 3:
+        raise ValueError(f"Need at least 3 sequences for t-SNE, got {len(ids)}")
     seq_list = [seqs[i] for i in ids]
     max_len = max(len(s) for s in seq_list)
 
     features = np.array([seq_to_onehot(s, max_len) for s in seq_list])
+    if float(np.var(features)) == 0.0:
+        raise ValueError("All sequence features are identical; skipping t-SNE")
 
-    tsne = TSNE(n_components=2, perplexity=min(perplexity, len(ids) - 1),
+    effective_perplexity = min(perplexity, len(ids) - 1)
+    if effective_perplexity <= 0:
+        raise ValueError(f"Invalid t-SNE perplexity: {effective_perplexity}")
+
+    tsne = TSNE(n_components=2, perplexity=effective_perplexity,
                 random_state=random_state)
     embedding = tsne.fit_transform(features)
 
     return {
         "ids": ids,
         "embedding": embedding.tolist(),
-        "perplexity": perplexity,
+        "perplexity": effective_perplexity,
     }
 
 
@@ -189,10 +198,22 @@ def evaluate_sequences(
     wt_seq: str,
     motif_cfg: dict,
     output_path: str = None,
+    compute_tsne: bool = False,
 ) -> dict:
     """Run all sequence-level metrics and return a report dict."""
 
-    ids = sorted(seqs.keys(), key=lambda x: int(x))
+    # Sort numeric IDs numerically; fall back to lexical for non-numeric IDs
+    # without raising (int() would crash on custom string IDs).
+    all_ids = sorted(seqs.keys(),
+                     key=lambda x: (0, int(x)) if str(x).isdigit() else (1, str(x)))
+    bad_len = [i for i in all_ids if len(seqs[i]) != len(wt_seq)]
+    if bad_len:
+        raise ValueError(
+            f"{len(bad_len)} sequences have length != WT ({len(wt_seq)} aa). "
+            f"First offenders: {bad_len[:3]}. "
+            f"Cannot compute per-position metrics. Check provenance of results."
+        )
+    ids = all_ids
     seq_list = [seqs[i] for i in ids]
 
     # ── 0. Sanity check: WT itself must pass the catalytic motif check ──
@@ -219,12 +240,16 @@ def evaluate_sequences(
     # ── 4. Diversity statistics ──
     recovery_from_csv = None  # may be filled if CSV has recovery column
 
-    # ── 5. t-SNE embedding (paper Fig. 5e) ──
+    # ── 5. t-SNE embedding (generated sequences only, not paper Fig. 5e) ──
     tsne_data = None
-    try:
-        tsne_data = tsne_embedding(seqs, wt_seq)
-    except ImportError:
-        pass  # sklearn not installed
+    if compute_tsne:
+        try:
+            tsne_data = tsne_embedding(seqs, wt_seq)
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"[WARN] t-SNE failed: {e}. Skipping.")
+            tsne_data = None
 
     report = {
         "num_sequences": len(seqs),
@@ -266,7 +291,11 @@ def evaluate_sequences(
     }
 
     if tsne_data is not None:
-        report["tsne"] = tsne_data
+        report["tsne_generated_only"] = tsne_data
+        report["tsne_note"] = (
+            "t-SNE computed on generated sequences only. "
+            "Paper Fig. 5e includes natural pAgo background — not reproduced here."
+        )
 
     # ── Per-sequence detail (useful for debugging) ──
     report["per_sequence"] = {}
@@ -345,8 +374,16 @@ if __name__ == "__main__":
     parser.add_argument("--wt_graph", help="Path to WT template .pt graph file (fallback)")
     parser.add_argument("--motif", default="kmago", choices=["kmago", "pfago"],
                         help="Which catalytic motif to check")
+    parser.add_argument("--fix_pos_file", default=None,
+                        help="File with conserved/catalytic positions (one per line: A123). "
+                             "Overrides --motif positions.")
+    parser.add_argument("--motif_positions", default=None,
+                        help="Comma-separated 1-indexed positions (e.g. 558,596,628,745). "
+                             "Overrides --motif and --fix_pos_file.")
     parser.add_argument("--output", default="result/predict/metrics_sequence.json",
                         help="Output JSON path")
+    parser.add_argument("--compute_tsne", action="store_true",
+                        help="Enable t-SNE embedding (off by default; can be slow/unstable)")
     args = parser.parse_args()
 
     # Load sequences
@@ -379,17 +416,37 @@ if __name__ == "__main__":
     print(f"WT sequence length: {len(wt_seq)}")
 
     # Get motif config
-    motif_cfg = CATALYTIC_MOTIFS[args.motif]
+    motif_cfg = dict(CATALYTIC_MOTIFS[args.motif])  # copy
+    if args.motif_positions:
+        pos_list = [int(p.strip()) - 1 for p in args.motif_positions.split(",")]
+        aa_list = [wt_seq[p] for p in pos_list if p < len(wt_seq)]
+        motif_cfg = {
+            "positions": pos_list,
+            "expected": "".join(aa_list),
+            "name": f"{args.motif} (CLI --motif_positions)",
+        }
+    elif args.fix_pos_file:
+        pos_list = []
+        aa_list = []
+        with open(args.fix_pos_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    aa = line[0]
+                    pos = int(line[1:])
+                    aa_list.append(aa)
+                    pos_list.append(pos - 1)
+        motif_cfg = {
+            "positions": pos_list,
+            "expected": "".join(aa_list),
+            "name": f"{args.motif} (from {args.fix_pos_file})",
+        }
     if motif_cfg["positions"] is None:
         if args.motif == "pfago":
-            print("ERROR: PfAgo DEDH catalytic tetrad residue numbers not available "
-                  "in the CPDiffusion paper.\n"
-                  "  If you have verified the PfAgo PDB numbering, re-run with "
-                  "--motif kmago and manually edit CATALYTIC_MOTIFS in "
-                  "metrics_sequence.py to set pfago.positions.\n"
-                  "  Literature reference: Swarts et al. 2015, Nucleic Acids Res.\n"
-                  "  Common PfAgo DEDH numbering: D558, E596, D628, H745 (verify "
-                  "against your specific PfAgo PDB).",
+            print("ERROR: PfAgo DEDH catalytic tetrad residue numbers not hardcoded.\n"
+                  "  Use --fix_pos_file dataset/Ago/pfago.piwi.fix.txt\n"
+                  "  Or --motif_positions 558,596,628,745\n"
+                  "  (D558, E596, D628, H745 — verify against your PfAgo PDB)",
                   file=sys.stderr)
         else:
             print(f"ERROR: motif positions not defined for {args.motif}",
@@ -397,5 +454,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Run evaluation
-    report = evaluate_sequences(seqs, wt_seq, motif_cfg, output_path=args.output)
+    report = evaluate_sequences(
+        seqs, wt_seq, motif_cfg,
+        output_path=args.output,
+        compute_tsne=args.compute_tsne,
+    )
     print_summary(report)

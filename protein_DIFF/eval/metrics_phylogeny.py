@@ -224,7 +224,7 @@ def evaluate_phylogeny(csv_path: str, wt_fasta: str,
 
     # ── MUSCLE ──
     aligned_fa = os.path.join(output_dir, "aligned.fasta")
-    run_muscle(combined_fa, aligned_fa)
+    run_muscle(combined_fa, aligned_fa, super5=True)
 
     # ── Conservation ──
     cons = compute_conservation_scores(aligned_fa)

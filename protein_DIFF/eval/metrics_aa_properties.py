@@ -81,6 +81,15 @@ def compare_aa_properties(seqs: dict, wt_seq: str) -> dict:
     the same property group as the WT residue at that position.
     """
     wt_len = len(wt_seq)
+
+    # Length validation (consistent with metrics_sequence.py)
+    bad_len = [(s, len(seqs[s])) for s in seqs if len(seqs[s]) != wt_len]
+    if bad_len:
+        raise ValueError(
+            f"{len(bad_len)} sequences have length != WT ({wt_len} aa). "
+            f"First offenders: {bad_len[:3]}."
+        )
+
     wt_groups = [classify_aa(aa) for aa in wt_seq]
 
     # Per-sequence property preservation
@@ -121,8 +130,6 @@ def compare_aa_properties(seqs: dict, wt_seq: str) -> dict:
         "positive_to_negative": 0,
         "negative_to_positive": 0,
         "charge_flip_total": 0,
-        "polar_uncharged_to_charged": 0,
-        "charged_to_polar_uncharged": 0,
     }
     charge_positions = {"positive": [], "negative": []}
     for i, wt_aa in enumerate(wt_seq):

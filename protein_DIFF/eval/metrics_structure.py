@@ -186,12 +186,14 @@ def load_plddt_from_pdb(pdb_path: str) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════
 
 def evaluate_structures(pdb_dir: str, wt_pdb: str,
-                        output_path: str = None) -> dict:
+                        output_path: str = None,
+                        plddt_json: str = None) -> dict:
     """Run all structure-level metrics.
 
     Args:
         pdb_dir: directory containing PDB files of generated sequences
         wt_pdb: path to WT template PDB file
+        plddt_json: if provided, only evaluate PDBs listed in passed_sequences
     """
     wt_coords, wt_seq = load_ca_from_pdb(wt_pdb)
     wt_plddt = load_plddt_from_pdb(wt_pdb)
@@ -199,9 +201,78 @@ def evaluate_structures(pdb_dir: str, wt_pdb: str,
     pdb_files = sorted([f for f in os.listdir(pdb_dir)
                         if f.endswith(".pdb") and f != os.path.basename(wt_pdb)])
 
+    # ── Optional: filter to pLDDT-passed subset ──
+    original_pdb_count = len(pdb_files)
+    passed_set = None
+    subset_label = "all"
+    subset_warning = None
+    plddt_filter_status = None
+    plddt_passed_count = None
+    if plddt_json and os.path.exists(plddt_json):
+        with open(plddt_json) as f:
+            plddt_report = json.load(f)
+        passed_list = plddt_report.get("passed_sequences", [])
+        status = plddt_report.get("status", "")
+        plddt_filter_status = status or "ok"
+        plddt_passed_count = len(passed_list)
+        if status in {"all_pdb_parse_failed", "wt_pdb_no_ca", "no_pdb_files"}:
+            print(f"[metrics_structure] pLDDT filter failed ({status}); no paper-level candidates available.")
+            report = {
+                "status": status,
+                "num_structures_evaluated": 0,
+                "evaluated_subset": status,
+                "note": "pLDDT filter failed — no candidate structures evaluated.",
+                "subset": {
+                    "mode": status,
+                    "plddt_json": plddt_json,
+                    "plddt_filter_status": status,
+                    "num_pdb_before_filter": original_pdb_count,
+                    "num_pdb_after_filter": 0,
+                    "paper_level_candidate_set": False,
+                },
+            }
+            if output_path:
+                os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+                with open(output_path, "w") as f:
+                    json.dump(report, f, indent=2)
+            return report
+        elif passed_list:
+            passed_set = set(passed_list)
+            pdb_files = [f for f in pdb_files if f in passed_set]
+            subset_label = "plddt_passed"
+            print(f"[metrics_structure] Filtered to {len(pdb_files)} pLDDT-passed "
+                  f"PDBs (from {len(passed_list)} in {plddt_json})")
+        else:
+            subset_label = "all_due_to_empty_plddt_passed"
+            subset_warning = (
+                "passed_sequences was empty; falling back to all PDBs for "
+                "engineering convenience. This is NOT a paper-level candidate set."
+            )
+            print(f"[metrics_structure] WARNING: passed_sequences is empty in "
+                  f"{plddt_json}; no sequences passed pLDDT filter. "
+                  f"Falling back to all PDBs for engineering fallback, "
+                  f"but this is NOT a paper-level candidate set.")
+
     if not pdb_files:
         print("WARNING: No PDB files found (need to run structure prediction first)")
-        return {"status": "no_pdb_files", "pdb_dir": pdb_dir}
+        report = {
+            "status": "no_pdb_files",
+            "pdb_dir": pdb_dir,
+            "evaluated_subset": subset_label,
+            "subset": {
+                "mode": subset_label,
+                "plddt_json": plddt_json,
+                "plddt_filter_status": plddt_filter_status,
+                "num_pdb_before_filter": original_pdb_count,
+                "num_pdb_after_filter": 0,
+                "paper_level_candidate_set": subset_label == "plddt_passed",
+            },
+        }
+        if output_path:
+            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            with open(output_path, "w") as f:
+                json.dump(report, f, indent=2)
+        return report
 
     # ── Per-structure metrics ──
     tm_scores = []
@@ -250,6 +321,18 @@ def evaluate_structures(pdb_dir: str, wt_pdb: str,
     n = len(tm_scores)
     report = {
         "num_structures_evaluated": n,
+        "evaluated_subset": subset_label,
+        "subset": {
+            "mode": subset_label,
+            "plddt_json": plddt_json,
+            "plddt_filter_status": plddt_filter_status,
+            "plddt_passed_count": plddt_passed_count,
+            "num_pdb_before_filter": original_pdb_count,
+            "num_pdb_after_filter": len(pdb_files),
+            "paper_level_candidate_set": subset_label == "plddt_passed",
+            **({"warning": subset_warning} if subset_warning else {}),
+        },
+        **({"subset_warning": subset_warning} if subset_warning else {}),
         "tm_score_vs_wt": {
             "mean": round(float(np.mean(tm_scores)), 4) if n else 0,
             "std": round(float(np.std(tm_scores)), 4) if n else 0,
@@ -352,6 +435,8 @@ if __name__ == "__main__":
                         help="Directory containing PDB files from AlphaFold2/ESMFold")
     parser.add_argument("--wt_pdb", required=True,
                         help="WT template PDB file")
+    parser.add_argument("--plddt_json", default=None,
+                        help="Optional: metrics_plddt.json to filter to passed subset")
     parser.add_argument("--output", default="result/metrics_structure.json",
                         help="Output JSON path")
     args = parser.parse_args()
@@ -363,5 +448,6 @@ if __name__ == "__main__":
         print(f"ERROR: wt_pdb not found: {args.wt_pdb}", file=sys.stderr)
         sys.exit(1)
 
-    report = evaluate_structures(args.pdb_dir, args.wt_pdb, args.output)
+    report = evaluate_structures(args.pdb_dir, args.wt_pdb, args.output,
+                                 plddt_json=args.plddt_json)
     print_summary(report)

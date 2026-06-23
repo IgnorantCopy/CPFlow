@@ -11,9 +11,6 @@ Usage:
 
   # Skip structure prediction (if already done):
   python protein_DIFF/eval/full_pipeline.py ... --skip_predict
-
-  # Only specific phases:
-  python protein_DIFF/eval/full_pipeline.py ... --phases sequence,structure
 """
 
 import argparse, json, os, subprocess, sys, time
@@ -67,6 +64,12 @@ def main():
                         help="Skip online BLAST (slow)")
     parser.add_argument("--skip_foldseek", action="store_true",
                         help="Skip FoldSeek (needs large PDB database)")
+    parser.add_argument("--motif", default="kmago", choices=["kmago", "pfago"],
+                        help="Which catalytic motif to check")
+    parser.add_argument("--fix_pos_file", default=None,
+                        help="Fix positions file (e.g. dataset/Ago/pfago.piwi.fix.txt)")
+    parser.add_argument("--motif_positions", default=None,
+                        help="Comma-separated 1-indexed motif positions")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -89,11 +92,18 @@ def main():
     print("#" * 60)
 
     seq_out = os.path.join(args.output_dir, "metrics_sequence.json")
-    ok = _run_script("metrics_sequence",
-                     "--csv", args.csv,
-                     "--wt_fasta", args.wt_fasta,
-                     "--output", seq_out)
+    seq_args = ["--csv", args.csv, "--wt_fasta", args.wt_fasta,
+                "--motif", args.motif, "--output", seq_out]
+    if args.fix_pos_file:
+        seq_args += ["--fix_pos_file", args.fix_pos_file]
+    if args.motif_positions:
+        seq_args += ["--motif_positions", args.motif_positions]
+    ok = _run_script("metrics_sequence", *seq_args)
     results["sequence"] = {"output": seq_out, "ok": ok}
+
+    if not ok:
+        print("\n[FATAL] Phase 1 failed. Stopping pipeline — fix sequence data first.")
+        sys.exit(1)
 
     # ── Phase 1b: AA property preservation ──
     print("\n" + "#" * 60)
@@ -210,6 +220,7 @@ def main():
         ok = _run_script("metrics_structure",
                          "--pdb_dir", args.pdb_dir,
                          "--wt_pdb", args.wt_pdb,
+                         "--plddt_json", plddt_out,
                          "--output", struct_out)
         results["structure"] = {"output": struct_out, "ok": ok}
     else:

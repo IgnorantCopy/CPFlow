@@ -77,7 +77,7 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
     can take 30-60 minutes.
     """
     try:
-        from Bio import Blast
+        from Bio import Blast, Entrez
         from Bio.Blast import NCBIWWW, NCBIXML
     except ImportError:
         raise ImportError(
@@ -86,6 +86,7 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
 
     if email:
         Blast.email = email
+        Entrez.email = email
 
     ids = sorted(seqs.keys(), key=lambda x: int(x))
     if max_seqs:
@@ -123,7 +124,13 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
                     break  # Only take the best HSP per alignment
 
             significant = [h for h in hits if h["e_value"] < 0.001]
-            # Exclude template self-matches (>95% identity over >90% query length)
+            # Build full exclusion list and count for auditability (M6)
+            excluded_as_template = [
+                {"title": h["title"], "identity_pct": h["identity_pct"],
+                 "align_length": h["align_length"]}
+                for h in significant
+                if h["identity_pct"] > 95.0 and h["align_length"] > len(seq) * 0.9
+            ]
             non_template = [
                 h for h in significant
                 if not (h["identity_pct"] > 95.0
@@ -136,6 +143,10 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
             results[sid] = {
                 "max_identity_pct": round(max_ident, 2),
                 "num_significant_hits": len(significant),
+                "num_excluded_as_template": len(excluded_as_template),
+                "template_exclusion_is_heuristic": True,
+                "template_exclusion_rule": "identity > 95% AND align > 90% query",
+                "excluded_template_hits": excluded_as_template[:5],
                 "top_hit": top_hit,
                 "status": "ok",
             }
@@ -153,6 +164,10 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
                   if r.get("status") == "ok"]
     report = {
         "num_sequences_tested": len(identities),
+        "subset_warning": (
+            f"Only {len(identities)} sequences BLASTed; "
+            "not paper-level novelty unless all selected candidates are tested."
+        ) if len(identities) < len(seqs) else None,
         "max_identity_pct": {
             "mean": round(float(np.mean(identities)), 2) if identities else 0,
             "std": round(float(np.std(identities)), 2) if identities else 0,
@@ -163,8 +178,10 @@ def blast_against_nr(seqs: dict, wt_seq: str = None, max_seqs: int = None,
             "below_40pct_ratio": round(
                 float(np.mean([1.0 if i < 40 else 0.0 for i in identities])), 4
             ) if identities else 0,
+            # Paper: all sequences must be < 40% (except template).
+            # Mean < 40% is not sufficient — even one outlier fails novelty.
             "paper_threshold_met": bool(
-                np.mean(identities) < 40 if identities else False
+                all(i < 40.0 for i in identities) if identities else False
             ),
         },
         "per_sequence": results,
