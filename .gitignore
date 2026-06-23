@@ -221,8 +221,12 @@ __marimo__/
 result/*
 !result/origin/
 !result/origin/**
-!result/origin/flow_50_af2_no_template
-!result/origin/flow_50_af2_no_template/**
+!result/flow_50/af2_no_template_rank001
+!result/flow_50/af2_no_template_rank001/**
+!result/flow_50/figure
+!result/flow_50/figure/**
+!result/flow_50/predict
+!result/flow_50/predict/**
 share/
 dataset/zip
 
