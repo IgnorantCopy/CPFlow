@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -217,7 +217,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-=======
+
+result/*
+!result/origin/
+!result/origin/**
+!result/flow_50/af2_no_template_rank001
+!result/flow_50/af2_no_template_rank001/**
+!result/flow_50/figure
+!result/flow_50/figure/**
+!result/flow_50/predict
+!result/flow_50/predict/**
+share/
+dataset/zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -388,4 +400,3 @@ ckpt/
 checkpoint/
 log/
 *.ipynb
->>>>>>> d7b2cc1 (<convert to meanflow>)
