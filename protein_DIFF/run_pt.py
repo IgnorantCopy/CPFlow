@@ -635,21 +635,21 @@ class Sparse_DIGRESS(nn.Module):
 
     def create_target(self, data):
         self.model.eval()
-        batch_size = data.batch[-1] + 1
+        batch_size = data.batch[-1].item() + 1
         log2_sections = int(math.log2(self.timesteps))
 
         bootstrap = np.random.rand() < self.bootstrap_ratio
         if bootstrap:
             dt_base = torch.repeat_interleave(log2_sections - 1 - torch.arange(log2_sections),
                                               batch_size // log2_sections)
-            dt_base = torch.cat([dt_base, torch.zeros(batch_size - dt_base.shape[0], )])
+            dt_base = torch.cat([dt_base, torch.zeros(batch_size - dt_base.shape[0], )]).to(data.x.device)
 
             dt_sections = 2 ** dt_base
             dt = 1 / dt_sections
             t = torch.cat([
                 torch.randint(low=0, high=int(val.item()), size=(1,)).float()
                 for val in dt_sections
-            ]).to(self.model.device) / dt_sections
+            ]).to(data.x.device) / dt_sections
 
             noise_data = self.apply_noise(data, t)
             dt_base_bootstrap = dt_base + 1
@@ -675,7 +675,7 @@ class Sparse_DIGRESS(nn.Module):
             t = torch.randint(0, self.timesteps, size=(batch_size, 1), device=data.x.device).float() / self.timesteps
             noise_data = self.apply_noise(data, t)
             dt_flow = int(math.log2(self.timesteps))
-            dt_base = (torch.ones(batch_size, dtype=torch.int32) * dt_flow).to(self.model.device)
+            dt_base = (torch.ones(batch_size, dtype=torch.int32) * dt_flow).to(data.x.device)
 
             if self.objective == 'pred_x0':
                 x_target = data.x
