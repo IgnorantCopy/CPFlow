@@ -219,14 +219,21 @@ __marimo__/
 .streamlit/secrets.toml
 
 result/*
-!result/origin/
 !result/origin/**
+!result/origin
+result/origin/log
+result/origin/af2_template
+
 !result/flow_50/af2_no_template_rank001
 !result/flow_50/af2_no_template_rank001/**
+!result/flow_50/af2_template_rank001
+!result/flow_50/af2_template_rank001/**
 !result/flow_50/figure
 !result/flow_50/figure/**
 !result/flow_50/predict
 !result/flow_50/predict/**
+
+!result/wt
 share/
 dataset/zip
 
