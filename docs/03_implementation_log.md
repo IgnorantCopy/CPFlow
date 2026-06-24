@@ -92,7 +92,7 @@
              — 需 694 条天然 pAgo 外部数据，待实现
 ```
 
-> 所有阻断性缺陷已在审计中修复。仅剩 B1/B2 依赖外部数据的功能补全。
+> A1/D1/E1/E2/B3/C1 已修复；B4/C2 接受；B1/B2 依赖外部 694 条天然 pAgo 数据；⚠ 论文残基级精细对比精选步骤未实现（人工审图，无法自动化）。
 
 ## 已实现文件
 
@@ -113,3 +113,9 @@ protein_DIFF/eval/                          (11 files, ~3100 lines)
 
 > 审计通过项：A1/D1/E1/E2/B3/C1 已修复；B4/C2 接受；D2/E3 非阻塞。
 > 仅剩 B1/B2 (`--ref_fasta`) 待外部数据。
+
+## 已知代码-论文差距（非阻断）
+
+- **metrics_structure.py**：不区分 KmAgo/PfAgo 阈值。PfAgo 需 TM > 0.97 (主论文) 或 > 0.9 (Suppl)、RMSD < 1.0Å，代码统一用 TM > 0.9 / RMSD < 3.0Å。
+- **metrics_phylogeny.py**：缺少 R_seq < 0.2 排除（论文 Methods 排除设计中的低保守性比对噪声位点）。
+- **恢复率数值**：文档判读表写 71-76%，补充材料 Table S4 为 64.62%（CPDiffusion all pAgos KmAgo）。

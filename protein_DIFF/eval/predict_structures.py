@@ -264,8 +264,8 @@ def three_step_filter(pdb_dir: str, wt_pdb: str,
 
     Step 1: reject sequences with overall pLDDT < mean − 1σ
     Step 2: reject sequences with σ(ΔpLDDT) > mean + 1σ
-    Step 3: reject sequences with count(ΔpLDDT > 10) > ceil(mean + 1σ)
-           (one-sided: only count when AP pLDDT exceeds WT by > 10)
+    Step 3: reject sequences with count(|ΔpLDDT| > 10) > ceil(mean + 1σ)
+
     """
     def _finish(report: dict, announce: bool = False) -> dict:
         if output_path:
@@ -301,10 +301,9 @@ def three_step_filter(pdb_dir: str, wt_pdb: str,
             min_len = min(len(arr), wt_len)
             delta = arr[:min_len] - wt_plddt[:min_len]
             sigma_delta = float(np.std(delta))
-            # Paper: count(ΔpLDDT > 10) where Δ = pLDDT_AP − pLDDT_WT.
-            # One-sided: only count positions where AP pLDDT exceeds WT by > 10.
-            # (If AP pLDDT < WT − 10 that's a different issue, not counted here.)
-            large_diffs = int(np.sum(delta > 10))
+            # Paper: count(|ΔpLDDT| > 10) where Δ = pLDDT_AP − pLDDT_WT.
+            # Counts both AP > WT + 10 and AP < WT − 10 deviations.
+            large_diffs = int(np.sum(np.abs(delta) > 10))
             all_data.append({
                 "file": fname, "length": len(arr),
                 "overall_plddt": round(overall, 2),
@@ -411,7 +410,7 @@ def print_filter_summary(report: dict):
     print(f"\n  Thresholds (mean ± 1σ):")
     print(f"    Step 1 - overall pLDDT ≥ {t.get('overall_plddt_min', 'N/A')}")
     print(f"    Step 2 - σ(ΔpLDDT) ≤ {t.get('sigma_delta_max', 'N/A')}")
-    print(f"    Step 3 - count(ΔpLDDT > 10) ≤ {t.get('large_diffs_max', 'N/A')}")
+    print(f"    Step 3 - count(|ΔpLDDT| > 10) ≤ {t.get('large_diffs_max', 'N/A')}")
 
     if pop:
         o = pop.get("overall_plddt", {})

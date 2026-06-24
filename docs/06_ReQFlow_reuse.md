@@ -183,7 +183,7 @@ protein_DIFF/eval/                          (11 files, ~3100 lines)
 | 第3轮 | C1 撤回假位点, B3 注释修正 |
 | 第4轮 | B3 `--templates` 真加, C1 CLI 提示实做, docstring 清理 |
 
-### 4.2 可直接复制的代码
+### 4.3 可直接复制的代码
 
 #### metrics.py（从 ReQFlow 直接移植，改 import 路径）
 
@@ -236,7 +236,7 @@ def calc_ca_ca_metrics(ca_pos, bond_tol=0.1, clash_tol=1.0):
 # 从 ReQFlow 直接复制到 protein_DIFF/eval/run_foldseek_parallel.sh
 ```
 
-### 4.3 新增的 CPFlow 特有模块
+### 4.4 新增的 CPFlow 特有模块
 
 ```python
 # protein_DIFF/eval/metrics_diversity.py
@@ -273,7 +273,7 @@ def structural_novelty(pdb_paths, foldseek_summary_csv):
     }
 ```
 
-### 4.4 集成后的完整评估流程
+### 4.5 集成后的完整评估流程
 
 ```
 0. CPFlow 推理 → FASTA 序列

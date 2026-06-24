@@ -52,7 +52,7 @@ NameError: name 'check_all_catalytic' is not defined        ← EXIT CODE 1
 1. 默认引擎是 ESMFold（单序列、无 MSA）；
 2. 即便走 `--engine alphafold`，命令里写死了 `--msa-mode single_sequence`、`--num-models 1`、**无 `--templates`**（docstring 自己也承认论文用了 MSA+模板+5模型）。
 
-pLDDT 三级筛选的通过率（论文 KmAgo ~27-30%）强依赖 AF2 结构，**用这套配置出来的 pLDDT/通过率对不上论文**。
+pLDDT 三步初筛通过率约 70%（论文淘汰 ~30/100），最终精选 27 条（27%），两步均强依赖 AF2 结构，**用这套配置出来的 pLDDT/通过率对不上论文**。
 
 ### B4. BLAST 新颖性未排除模板自身 — `metrics_novelty.py:110-127`
 
