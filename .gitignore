@@ -218,22 +218,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-result/*
-!result/origin/**
-!result/origin
-result/origin/log
-result/origin/af2_template
-
-!result/flow_50/af2_no_template_rank001
-!result/flow_50/af2_no_template_rank001/**
-!result/flow_50/af2_template_rank001
-!result/flow_50/af2_template_rank001/**
-!result/flow_50/figure
-!result/flow_50/figure/**
-!result/flow_50/predict
-!result/flow_50/predict/**
-
-!result/wt
 share/
 dataset/zip
 
@@ -407,3 +391,31 @@ ckpt/
 checkpoint/
 log/
 *.ipynb
+
+# Result artifacts: ignore everything by default, then keep curated outputs.
+result/*
+
+# origin: keep everything except logs and raw template AF2 output.
+!result/origin/
+!result/origin/**
+result/origin/log/
+result/origin/log/**
+result/origin/af2_template/
+result/origin/af2_template/**
+
+# flow_50: keep only selected evaluation artifacts.
+!result/flow_50/
+result/flow_50/*
+!result/flow_50/af2_no_template_rank001/
+!result/flow_50/af2_no_template_rank001/**
+!result/flow_50/af2_template_rank001/
+!result/flow_50/af2_template_rank001/**
+!result/flow_50/figure/
+!result/flow_50/figure/**
+!result/flow_50/predict/
+!result/flow_50/predict/**
+!result/flow_50/predict.csv
+
+# wt: keep all curated WT references.
+!result/wt/
+!result/wt/**
