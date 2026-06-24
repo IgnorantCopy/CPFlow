@@ -249,6 +249,8 @@ class EGNN_NET(torch.nn.Module):
 
         self.time_mlp = nn.Sequential(self.sinu_pos_emb, nn.Linear(hidden_channels, hidden_channels), nn.SiLU(),
                                       nn.Linear(hidden_channels, embedding_dim))
+        self.dt_mlp = nn.Sequential(self.sinu_pos_emb, nn.Linear(hidden_channels, hidden_channels), nn.SiLU(),
+                                    nn.Linear(hidden_channels, embedding_dim))
 
         self.ss_mlp = nn.Sequential(nn.Linear(8, hidden_channels), nn.SiLU(),
                                     nn.Linear(hidden_channels, embedding_dim))
@@ -281,11 +283,13 @@ class EGNN_NET(torch.nn.Module):
         self.edge_embedding = edgeEncoder(embedding_dim)
         self.lin = Linear(hidden_channels, output_dim)
 
-    def forward(self, data, time):
+    def forward(self, data, t, dt):
         # data.x first 20 dim is noise label. 21 to 34 is knowledge from backbone, e.g. mu_r_norm, sasa, b factor and so on
         x, pos, extra_x, edge_index, edge_attr, ss, batch = data.x, data.pos, data.extra_x, data.edge_index, data.edge_attr, data.ss, data.batch
 
-        t = self.time_mlp(time)
+        t = self.time_mlp(t)
+        dt = self.dt_mlp(dt)
+        c = t + dt
 
         ss_embed = self.ss_mlp(ss)
 
@@ -304,7 +308,7 @@ class EGNN_NET(torch.nn.Module):
 
             # time and conditional shift
             corr, feats = h[:, 0:3], h[:, 3:]
-            time_emb = self.time_mlp_list[i](t)  # [B,hidden_dim*2]
+            time_emb = self.time_mlp_list[i](c)  # [B,hidden_dim*2]
             scale_, shift_ = time_emb.chunk(2, dim=1)
             scale = scale_[data.batch]
             shift = shift_[data.batch]
@@ -401,13 +405,14 @@ class DiscreteUniformTransition:
 
 
 class Sparse_DIGRESS(nn.Module):
-    def __init__(self, model, config, *, timesteps=1000, sampling_timesteps=None, loss_type='CE', objective='pred_x0',
+    def __init__(self, model, config, *, timesteps=1000, bootstrap_ratio=0.75, loss_type='CE', objective='pred_x0',
                  label_smooth_tem=1.0):
         super().__init__()
         self.model = model
         # self.self_condition = self.model.self_condition
         self.objective = objective
         self.timesteps = timesteps
+        self.bootstrap_ratio = bootstrap_ratio
         self.loss_type = loss_type
         self.noise_type = config['noise_type']
         self.config = config
@@ -478,19 +483,20 @@ class Sparse_DIGRESS(nn.Module):
 
         return out
 
-    def sample_p_zs_given_zt(self, t, s, zt, data, temperature, last_step, cond=False):
+    def sample_p_zs_given_zt(self, t, s, zt, data, temperature, last_step, sample_steps, cond=False):
         """
         sample zs~p(zs|zt)
         """
-        t_float = t / self.timesteps
-        s_float = s / self.timesteps
+        t_float = t / sample_steps
+        s_float = s / sample_steps
+        dt_base = torch.ones_like(t_float).to(data.x.device) * math.log2(sample_steps)
         Qtb = self.transition_model.get_Qt_bar(t_float, data.x.device)
         Qsb = self.transition_model.get_Qt_bar(s_float, data.x.device)
         Qt = (Qtb / Qsb) / (Qtb / Qsb).sum(dim=1).unsqueeze(dim=2)
 
         noise_data = data.clone()
         noise_data.x = zt  # x_t
-        pred, _ = self.model(noise_data, t_float)
+        pred, _ = self.model(noise_data, t_float, dt_base)
         pred_X = F.softmax(pred, dim=-1)  # \hat{p(X)}_0
 
         if isinstance(cond, torch.Tensor):
@@ -599,50 +605,93 @@ class Sparse_DIGRESS(nn.Module):
 
         return X_s, None
 
-    def sample(self, data, cond=False, temperature=1.0, stop=0):
+    def sample(self, data, cond=False, temperature=1.0, stop=0, sample_steps=4):
         limit_dist = torch.ones(20) / 20
         zt = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0])  # [N,20] one hot
         zt = zt.to(data.x.device)
-        for s_int in reversed(range(stop, self.timesteps)):  # 500
+        for s_int in reversed(range(stop, sample_steps)):  # 500
             # z_t-1 ~p(z_t-1|z_t),
             s_array = s_int * torch.ones((data.batch[-1] + 1, 1)).type_as(data.x)
             t_array = s_array + 1
             zt, final_predicted_X = self.sample_p_zs_given_zt(t_array, s_array, zt, data, temperature,
-                                                              last_step=s_int == stop)
+                                                              last_step=s_int == stop, sample_steps=sample_steps)
         return zt, final_predicted_X
 
-    def ddim_sample(self, data, cond=False, temperature=1.0, stop=0, step=10, ratio=0):
-        limit_dist = torch.ones(20) / 20
-        zt = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0])  # [N,20] one hot
-        zt = zt.to(data.x.device)
-        for s_int in tqdm(list(reversed(range(stop, self.timesteps, step)))):  # 500
-            # z_t-1 ~p(z_t-1|z_t),
-            s_array = s_int * torch.ones((data.batch[-1] + 1, 1)).type_as(data.x)
-            t_array = s_array + step
-            if ratio != 0:
-                zt, final_predicted_X = self.sample_p_zs_given_zt_MSA(t_array, s_array, zt, data, temperature,
-                                                                      last_step=s_int == stop, cond=cond,
-                                                                      MSA_retrieval_ratio=ratio)
+    def compute_batched_forward_step_distribution(self, X_t, Q_next, data):
+        Q_batch = Q_next[data.batch]  # [N, d_t, d_{t+1}]
+        X_t_ = X_t.unsqueeze(-2)  # [N, 1, d_t]
+        p_x_next_given_x_t = X_t_ @ Q_batch  # [N, 1, d_{t+1}]
+        p_x_next_given_x_t = p_x_next_given_x_t.squeeze(-2)  # [N, d_{t+1}]
+        zero_mask = torch.sum(p_x_next_given_x_t, dim=-1, keepdim=True) == 0
+        p_x_next_given_x_t = torch.where(zero_mask, torch.full_like(p_x_next_given_x_t, 1e-6), p_x_next_given_x_t)
+
+        return p_x_next_given_x_t
+
+    def sample_forward_x_next(self, X_t, Q_next, data):
+        prob_x_next = self.compute_batched_forward_step_distribution(X_t, Q_next, data)
+        idx_next = prob_x_next.multinomial(1).squeeze()
+        X_next = F.one_hot(idx_next, num_classes=20).float()
+        return X_next, prob_x_next
+
+    def create_target(self, data):
+        self.model.eval()
+        batch_size = data.batch[-1] + 1
+        log2_sections = int(math.log2(self.timesteps))
+
+        bootstrap = np.random.rand() < self.bootstrap_ratio
+        if bootstrap:
+            dt_base = torch.repeat_interleave(log2_sections - 1 - torch.arange(log2_sections),
+                                              batch_size // log2_sections)
+            dt_base = torch.cat([dt_base, torch.zeros(batch_size - dt_base.shape[0], )])
+
+            dt_sections = 2 ** dt_base
+            dt = 1 / dt_sections
+            t = torch.cat([
+                torch.randint(low=0, high=int(val.item()), size=(1,)).float()
+                for val in dt_sections
+            ]).to(self.model.device) / dt_sections
+
+            noise_data = self.apply_noise(data, t)
+            dt_base_bootstrap = dt_base + 1
+            dt_bootstrap = dt / 2
+            with torch.no_grad():
+                x1 = self.model(noise_data, t, dt_base_bootstrap)
+            t2 = t + dt_bootstrap
+
+            Qtb = self.transition_model.get_Qt_bar(t, data.x.device)
+            Qtb2 = self.transition_model.get_Qt_bar(t2, data.x.device)
+            Q_next = torch.matmul(torch.inverse(Qtb), Qtb2)
+            xt, _ = self.sample_forward_x_next(x1, Q_next, data)
+            noise_data2 = noise_data.clone()
+            noise_data2.x = xt
+
+            with torch.no_grad():
+                x2 = self.model(noise_data2, t, dt_base_bootstrap)
+            x_target = (x1 + x2) / 2
+            x_target = F.softmax(x_target, dim=-1)
+            x_target = torch.argmax(x_target, dim=-1)
+            x_target = F.one_hot(x_target, num_classes=20).float()
+        else:
+            t = torch.randint(0, self.timesteps, size=(batch_size, 1), device=data.x.device).float() / self.timesteps
+            noise_data = self.apply_noise(data, t)
+            dt_flow = int(math.log2(self.timesteps))
+            dt_base = (torch.ones(batch_size, dtype=torch.int32) * dt_flow).to(self.model.device)
+
+            if self.objective == 'pred_x0':
+                x_target = data.x
+            elif self.objective == 'smooth_x0':
+                x_target = substitute_label(data.x.argmax(dim=1), temperature=self.label_smooth_tem)
             else:
-                zt, final_predicted_X = self.sample_p_zs_given_zt(t_array, s_array, zt, data, temperature,
-                                                                  last_step=s_int == stop, cond=cond)
+                raise ValueError(f'unknown objective {self.objective}')
 
-        return zt, final_predicted_X
+        return noise_data, x_target, t, dt_base
+
 
     def forward(self, data, logit=False):
+        noise_data, x_target, t, dt_base = self.create_target(data)
+        pred_X, pred_sasa = self.model(noise_data, t, dt_base)  # have parameter
 
-        t_float = torch.randint(0, self.timesteps, size=(data.batch[-1] + 1, 1),
-                                device=data.x.device).float() / self.timesteps
-        noise_data = self.apply_noise(data, t_float)
-        pred_X, pred_sasa = self.model(noise_data, t_float)  # have parameter
-
-        if self.objective == 'pred_x0':
-            target = data.x
-        elif self.objective == 'smooth_x0':
-            target = substitute_label(data.x.argmax(dim=1), temperature=self.label_smooth_tem)
-        else:
-            raise ValueError(f'unknown objective {self.objective}')
-        ce_loss = self.loss_fn(pred_X, target, reduction='mean')
+        ce_loss = self.loss_fn(pred_X, x_target, reduction='mean')
 
         if exists(pred_sasa):
             mse_loss = F.mse_loss(pred_sasa, data.sasa)
