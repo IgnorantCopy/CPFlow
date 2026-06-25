@@ -416,6 +416,7 @@ class Sparse_DIGRESS(nn.Module):
         self.loss_type = loss_type
         self.noise_type = config['noise_type']
         self.config = config
+        self.step = 0
         if config['noise_type'] == 'uniform':
             self.transition_model = DiscreteUniformTransition(x_classes=20)
         elif config['noise_type'] == 'blosum':
@@ -524,88 +525,7 @@ class Sparse_DIGRESS(nn.Module):
 
         return X_s, None
 
-    def sample_p_zs_given_zt_MSA(self, t, s, zt, data, temperature, last_step, cond=False, MSA_retrieval_ratio=0):
-        """
-        sample zs~p(zs|zt)
-        """
-        Qtb = self.transition_model.get_Qt_bar(t, data.x.device)
-        Qsb = self.transition_model.get_Qt_bar(s, data.x.device)
-        Qt = (Qtb / Qsb) / (Qtb / Qsb).sum(dim=1).unsqueeze(dim=2)
-
-        noise_data = data.clone()
-        noise_data.x = zt  # x_t
-        pred, _ = self.model(noise_data, t)
-        pred_X = F.softmax(pred, dim=-1)  # \hat{p(X)}_0
-
-        if isinstance(cond, torch.Tensor):
-            pred_X[cond] = data.x[cond]
-
-        if last_step:
-            pred = pred ** temperature
-            pred_X = F.softmax(pred, dim=-1)
-            # add MSA distribution here
-            # 序列输入到tmp/i.fasta
-            MSA_pred_X = None
-            seq_list = [''] * (1 + data.batch[-1])
-            for i, aa_type in enumerate(data.x.argmax(dim=1)):
-                seq_list[data.batch[i]] += amino_acids_type[aa_type]
-            for i, seq in enumerate(seq_list):
-                print('seq len: ', len(seq), 'seq: ', seq)
-                record = SeqRecord(Seq(seq), id=str(i))
-                records = [record]
-                fasta_file = 'protein_DIFF/test_rr_tmp/' + str(i) + '.fasta'
-                MSA_a2m_file = 'protein_DIFF/test_rr_tmp/' + str(i) + '.a2m'
-                SeqIO.write(records, fasta_file, 'fasta')
-                if str(i) + '.a2m' not in os.listdir('protein_DIFF/test_rr_tmp/'):
-                    p = os.popen(
-                        'hhblits -i ' + fasta_file + ' -d /data/alphafold2/data/bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt -d /data/alphafold2/data/pdb70/pdb70 -d /data/alphafold2/data/uniclust30/uniclust30_2018_08/uniclust30_2018_08  -o example.hhr  -oa3m tmp.a3m  -n 3  -id 90  -cov 50  -cpu 8')
-                    print(p.read())
-                    p.close()
-                    p = os.popen(' reformat.pl tmp.a3m ' + MSA_a2m_file)
-                    print(p.read())
-                    p.close()
-                MSA_pred_X_single_seq = MSA_retrieval(MSA_a2m_file)
-                if MSA_pred_X is None:
-                    MSA_pred_X = MSA_pred_X_single_seq
-                else:
-                    MSA_pred_X = torch.cat([MSA_pred_X, MSA_pred_X_single_seq], dim=0)
-            print('MSA_pred_X shape: ', MSA_pred_X.shape)
-            print('MSA_pred_X: ', MSA_pred_X)
-            # os.removedirs('protein_DIFF/test_rr_tmp/')
-            # os.makedirs('protein_DIFF/test_rr_tmp/')
-
-            if type(MSA_retrieval_ratio) is list:
-                final_predicted_X_list = []
-                for ratio in MSA_retrieval_ratio:
-                    mixed_pred_X = (1 - ratio) * pred_X + ratio * MSA_pred_X
-                    sample_s = mixed_pred_X.argmax(dim=1)
-                    final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
-                    # final_predicted_X_list.append(final_predicted_X.clone())
-                    final_predicted_X_list.append(final_predicted_X)
-                return pred, final_predicted_X_list
-
-            else:
-                # sample_s = pred_X.multinomial(1).squeeze()
-                mixed_pred_X = (1 - MSA_retrieval_ratio) * pred_X + MSA_retrieval_ratio * MSA_pred_X
-                sample_s = mixed_pred_X.argmax(dim=1)
-                final_predicted_X = F.one_hot(sample_s, num_classes=20).float()
-
-                return pred, final_predicted_X
-
-        p_s_and_t_given_0_X = self.compute_batched_over0_posterior_distribution(X_t=zt, Q_t=Qt, Qsb=Qsb, Qtb=Qtb,
-                                                                                data=data)  # [N,d0,d_t-1] 20,20
-        weighted_X = pred_X.unsqueeze(-1) * p_s_and_t_given_0_X  # [N,d0,d_t-1]
-        unnormalized_prob_X = weighted_X.sum(dim=1)  # [N,d_t-1]
-        unnormalized_prob_X[torch.sum(unnormalized_prob_X, dim=-1) == 0] = 1e-5
-        prob_X = unnormalized_prob_X / torch.sum(unnormalized_prob_X, dim=-1, keepdim=True)  # [N,d_t-1]
-        # prob_X = prob_X/temperature
-        sample_s = prob_X.multinomial(1).squeeze()
-        # sample_s = prob_X.argmax(1).squeeze()
-        X_s = F.one_hot(sample_s, num_classes=20).float()
-
-        return X_s, None
-
-    def sample(self, data, cond=False, temperature=1.0, stop=0, sample_steps=4):
+    def sample(self, data, cond=False, temperature=1.0, stop=0, sample_steps=128):
         limit_dist = torch.ones(20) / 20
         zt = self.sample_discrete_feature_noise(limit_dist=limit_dist, num_node=data.x.shape[0])  # [N,20] one hot
         zt = zt.to(data.x.device)
@@ -617,28 +537,12 @@ class Sparse_DIGRESS(nn.Module):
                                                               last_step=s_int == stop, sample_steps=sample_steps)
         return zt, final_predicted_X
 
-    def compute_batched_forward_step_distribution(self, X_t, Q_next, data):
-        Q_batch = Q_next[data.batch]  # [N, d_t, d_{t+1}]
-        X_t_ = X_t.unsqueeze(-2)  # [N, 1, d_t]
-        p_x_next_given_x_t = X_t_ @ Q_batch  # [N, 1, d_{t+1}]
-        p_x_next_given_x_t = p_x_next_given_x_t.squeeze(-2)  # [N, d_{t+1}]
-        zero_mask = torch.sum(p_x_next_given_x_t, dim=-1, keepdim=True) == 0
-        p_x_next_given_x_t = torch.where(zero_mask, torch.full_like(p_x_next_given_x_t, 1e-6), p_x_next_given_x_t)
-
-        return p_x_next_given_x_t
-
-    def sample_forward_x_next(self, X_t, Q_next, data):
-        prob_x_next = self.compute_batched_forward_step_distribution(X_t, Q_next, data)
-        idx_next = prob_x_next.multinomial(1).squeeze()
-        X_next = F.one_hot(idx_next, num_classes=20).float()
-        return X_next, prob_x_next
-
     def create_target(self, data):
         self.model.eval()
         batch_size = data.batch[-1].item() + 1
         log2_sections = int(math.log2(self.timesteps))
 
-        bootstrap = np.random.rand() < self.bootstrap_ratio
+        bootstrap = np.random.rand() < min(0.75, self.step / 90000)
         if bootstrap:
             dt_base = torch.repeat_interleave(log2_sections - 1 - torch.arange(log2_sections),
                                               batch_size // log2_sections)
@@ -650,27 +554,37 @@ class Sparse_DIGRESS(nn.Module):
                 torch.randint(low=0, high=int(val.item()), size=(1,)).float()
                 for val in dt_sections
             ]).to(data.x.device) / dt_sections
+            t = t.unsqueeze(1)
+            dt_base = dt_base.unsqueeze(1)
 
-            noise_data = self.apply_noise(data, t)
             dt_base_bootstrap = dt_base + 1
             dt_bootstrap = dt / 2
-            with torch.no_grad():
-                x1 = self.model(noise_data, t, dt_base_bootstrap)
-            t2 = t + dt_bootstrap
-
-            Qtb = self.transition_model.get_Qt_bar(t, data.x.device)
+            t2 = t + dt_bootstrap.unsqueeze(1)
+            noise_data = self.apply_noise(data, t2)
             Qtb2 = self.transition_model.get_Qt_bar(t2, data.x.device)
-            Q_next = torch.matmul(torch.inverse(Qtb), Qtb2)
-            xt, _ = self.sample_forward_x_next(x1, Q_next, data)
-            noise_data2 = noise_data.clone()
+            Qtb1 = self.transition_model.get_Qt_bar(t, data.x.device)
+            Qt = (Qtb2 / Qtb1) / (Qtb2 / Qtb1).sum(dim=1).unsqueeze(dim=2)
+            with torch.no_grad():
+                x1, _ = self.model(noise_data, t2, dt_base_bootstrap)
+            pred_X = F.softmax(x1, dim=-1)
+            p_s_and_t_given_0_X = self.compute_batched_over0_posterior_distribution(X_t=noise_data.x.float(), Q_t=Qt,
+                                                                                    Qsb=Qtb1, Qtb=Qtb2, data=data)
+            weighted_X = pred_X.unsqueeze(-1) * p_s_and_t_given_0_X  # [N,d0,d_t-1]
+            unnormalized_prob_X = weighted_X.sum(dim=1)  # [N,d_t-1]
+            unnormalized_prob_X[torch.sum(unnormalized_prob_X, dim=-1) == 0] = 1e-5
+            prob_X = unnormalized_prob_X / torch.sum(unnormalized_prob_X, dim=-1, keepdim=True)  # [N,d_t-1]
+            sample_s = prob_X.multinomial(1).squeeze()
+            xt = F.one_hot(sample_s, num_classes=20).float()
+            noise_data2 = data.clone()
             noise_data2.x = xt
 
             with torch.no_grad():
-                x2 = self.model(noise_data2, t, dt_base_bootstrap)
+                x2, _ = self.model(noise_data2, t, dt_base_bootstrap)
             x_target = (x1 + x2) / 2
             x_target = F.softmax(x_target, dim=-1)
             x_target = torch.argmax(x_target, dim=-1)
             x_target = F.one_hot(x_target, num_classes=20).float()
+            t = t2
         else:
             t = torch.randint(0, self.timesteps, size=(batch_size, 1), device=data.x.device).float() / self.timesteps
             noise_data = self.apply_noise(data, t)
@@ -689,6 +603,7 @@ class Sparse_DIGRESS(nn.Module):
 
     def forward(self, data, logit=False):
         noise_data, x_target, t, dt_base = self.create_target(data)
+        self.step += 1
         pred_X, pred_sasa = self.model(noise_data, t, dt_base)  # have parameter
 
         ce_loss = self.loss_fn(pred_X, x_target, reduction='mean')
