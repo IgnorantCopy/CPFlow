@@ -1,3 +1,4 @@
+import time
 import random
 import torch
 import os
@@ -127,7 +128,8 @@ if __name__ == '__main__':
     print(cond_index)
     cond_index = torch.tensor(cond_index)
     
-    seq_record = {'id': [], 'seq': [], 'recovery': []}
+    seq_record = {'id': [], 'seq': [], 'recovery': [], 'perplexity': []}
+    start_time = time.time()
     for i in range(args.gen_num):
         with torch.no_grad():
             while True:
@@ -137,6 +139,8 @@ if __name__ == '__main__':
                 all_zt.append(prob) #= torch.cat([all_zt,zt])
                 recovery_list,ind = seq_recovery(data_input,sample_graph)
                 recovery = np.mean(recovery_list)
+                ll_fullseq = F.cross_entropy(zt, data_input.x, reduction='mean').item()
+                perplexity = 0.1 * np.exp(ll_fullseq)
                 print(zt.shape)
                 #[B,L,37,hidden_dim] atom14 to atom37
                 seq = ''.join([amino_acids_type[i.item()] for i in zt.argmax(dim=1).cpu().numpy()])
@@ -156,7 +160,8 @@ if __name__ == '__main__':
             seq_record['id'].append(i)
             seq_record['seq'].append(seq)
             seq_record['recovery'].append(recovery)
-            print(i,seq,recovery)
+            seq_record['perplexity'].append(perplexity)
+            print(i,seq,recovery,perplexity)
             # if i >= 1: 
             #     all_zt_tensor = torch.stack(all_zt)
             #     recovery = (all_zt_tensor.mean(dim = 0).argmax(dim=1) == data_input.x.argmax(dim = 1)).sum()/(all_zt_tensor.mean(dim = 0).argmax(dim=1) == data_input.x.argmax(dim = 1)).shape[0]
@@ -167,18 +172,19 @@ if __name__ == '__main__':
             #     sub_perplex_record.append(perplexity)
     
     # torch.save(all_zt_tensor.mean(dim = 0),'dataset/Ago/predict/likelihood_step=100_1.pt')
-    
+    end_time = time.time()
+    print(f"avg time: {(end_time - start_time) / args.gen_num}")
     os.makedirs(args.output_dir, exist_ok=True)
-    for id, seq, rr in zip(seq_record['id'], seq_record['seq'], seq_record['recovery']):
+    for id, seq, rr, pp in zip(seq_record['id'], seq_record['seq'], seq_record['recovery'], seq_record['perplexity']):
         if args.chunk_size > 0:
             chunk_name = f'chunk_{id//args.chunk_size}'
             os.makedirs(os.path.join(args.output_dir, chunk_name), exist_ok=True)
-            out_file = os.path.join(args.output_dir, chunk_name, f'{protein_name}_{id}_{rr:.2f}.fasta')
+            out_file = os.path.join(args.output_dir, chunk_name, f'{protein_name}_{id}_{rr:.2f}_{pp:.4f}.fasta')
         else:
             os.makedirs(os.path.join(args.output_dir, "fasta"), exist_ok=True)
-            out_file = os.path.join(args.output_dir, "fasta", f'{protein_name}_{id}_{rr:.2f}.fasta')
+            out_file = os.path.join(args.output_dir, "fasta", f'{protein_name}_{id}_{rr:.2f}_{pp:.4f}.fasta')
         with open(out_file, 'w') as f:
-            f.write(f'>{id}|{rr}|{step}\n')
+            f.write(f'>{id}|{rr}|{pp}|{step}\n')
             f.write(f'{seq}')
     csv_name = args.output_dir.split('/')[-1]
     out_file = os.path.join(args.output_dir, f'{csv_name}.csv')
